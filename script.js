@@ -2,6 +2,8 @@
 // CHESSBALL - ULTIMATE MULTIPLAYER & PENALTY ENGINE
 // ===================================================
 
+import { Peer } from 'peerjs'
+
 const matrixContent = document.querySelector('.main-matrix')
 const squadsBoard = Array.from(matrixContent ? matrixContent.querySelectorAll('.squad') : [])
 const topGoalSquads = Array.from(document.querySelectorAll('.goal-keeping-zone-1.top-goal .squad, .goal-keeping-zone-1:first-of-type .squad'))
@@ -30,15 +32,20 @@ let blackScore = 0
 let turnSeconds = 15
 let turnTimerInterval = null
 
-// MULTIPLAYER STATE
+// MULTIPLAYER STATE (P2P via PeerJS)
 let isMultiplayer = true
-let socket = null
 let myRole = 'white' // 'white' | 'black'
-let myTeamName = 'Oqlar'
-let oppTeamName = 'Qoralar'
+let isHost = false
+let myTeamName = 'Barsa'
+let oppTeamName = 'Real Madrid'
 let currentRoomCode = null
 let myIsReady = false
 let oppIsReady = false
+
+let peer = null
+let netConn = null
+let hostPenaltyState = { shooterChoice: null, keeperChoice: null }
+let hostReadyState = { host: false, guest: false }
 
 // PENALTY STATE (Best of 3 + Sudden Death)
 let penaltyRound = 1
@@ -51,14 +58,11 @@ let myPenaltyChoice = null
 let oppLockedChoice = false
 let penaltyInProgress = false
 
-// Initialize Socket.io connection safely
-try {
-	if (typeof io !== 'undefined') {
-		socket = io()
+// P2P Net Event Emitter
+function netEmit(event, data = {}) {
+	if (netConn && netConn.open) {
+		netConn.send({ event, data })
 	}
-} catch (e) {
-	console.warn('[Multiplayer] Socket.io yuklanmadi, lokal rejimda ishlaydi.', e)
-	isMultiplayer = false
 }
 
 // Donalarning dastlabki ro'yxati
@@ -201,8 +205,8 @@ function handleTurnTimeout(fromRemote = false) {
 	showToast(`⏱️ 15s vaqt tugadi! ${timedOutTeam} navbatni boy berdi.`, 'warning')
 
 	const isMyTurn = (myRole === 'white' && isWhiteTurn) || (myRole === 'black' && !isWhiteTurn)
-	if (!fromRemote && isMultiplayer && socket && currentRoomCode && isMyTurn) {
-		socket.emit('turn_timeout', { roomId: currentRoomCode })
+	if (!fromRemote && isMultiplayer && isMyTurn) {
+		netEmit('turn_timeout', {})
 	}
 
 	changeOrder()
@@ -258,9 +262,8 @@ if (plusBtn) {
 			Time++
 			duration = Time * 60
 			updateMatchTimerDisplay()
-			if (isMultiplayer && socket && currentRoomCode) {
-				socket.emit('timer_change', {
-					roomId: currentRoomCode,
+			if (isMultiplayer) {
+				netEmit('timer_change', {
 					time: Time,
 					duration: duration,
 				})
@@ -275,9 +278,8 @@ if (minusBtn) {
 			Time--
 			duration = Time * 60
 			updateMatchTimerDisplay()
-			if (isMultiplayer && socket && currentRoomCode) {
-				socket.emit('timer_change', {
-					roomId: currentRoomCode,
+			if (isMultiplayer) {
+				netEmit('timer_change', {
 					time: Time,
 					duration: duration,
 				})
@@ -316,8 +318,14 @@ if (startBtnElem) {
 			startBtnElem.classList.add('is-ready')
 			showToast("Siz tayyorsiz! Raqib tayyor bo'lishi kutilmoqda...", 'info')
 
-			if (socket && currentRoomCode) {
-				socket.emit('player_ready', { roomId: currentRoomCode })
+			if (isHost) {
+				hostReadyState.host = true
+				if (hostReadyState.host && hostReadyState.guest) {
+					netEmit('game_started', {})
+					triggerStartGame()
+				}
+			} else {
+				netEmit('player_ready', {})
 			}
 		}
 	})
@@ -869,16 +877,14 @@ function Replace(emitSocket = true) {
 	}
 	clearAllDots()
 
-	if (emitSocket && isMultiplayer && socket && currentRoomCode) {
+	if (emitSocket && isMultiplayer) {
 		if (!yurish) {
-			socket.emit('prep_move', {
-				roomId: currentRoomCode,
+			netEmit('prep_move', {
 				from: [x1, y1],
 				to: [x2, y2],
 			})
 		} else {
-			socket.emit('game_move', {
-				roomId: currentRoomCode,
+			netEmit('game_move', {
 				from: [x1, y1],
 				to: [x2, y2],
 			})
@@ -1004,9 +1010,8 @@ function executeGoal(from, to, emit = true) {
 	const goalBanner = document.querySelector('.goall')
 	if (goalBanner) goalBanner.style.display = 'flex'
 
-	if (emit && isMultiplayer && socket && currentRoomCode) {
-		socket.emit('goal_scored', {
-			roomId: currentRoomCode,
+	if (emit && isMultiplayer) {
+		netEmit('goal_scored', {
 			from,
 			to,
 			scorer: Order ? 'black' : 'white',
@@ -1249,12 +1254,27 @@ function makePenaltyChoice(zoneNum, amIShooter) {
 		penaltyActionStatus.textContent = `Siz tanladingiz: ${zoneNum == 1 ? 'Chap' : zoneNum == 2 ? 'Markaz' : "O'ng"}. Raqib kutilmoqda... 🔒`
 	}
 
-	if (isMultiplayer && socket && currentRoomCode) {
-		socket.emit('penalty_submit_choice', {
-			roomId: currentRoomCode,
-			choiceType: amIShooter ? 'shooter' : 'keeper',
-			choice: zoneNum,
-		})
+	if (isMultiplayer && netConn && netConn.open) {
+		if (isHost) {
+			if (amIShooter) hostPenaltyState.shooterChoice = zoneNum
+			else hostPenaltyState.keeperChoice = zoneNum
+
+			if (hostPenaltyState.shooterChoice !== null && hostPenaltyState.keeperChoice !== null) {
+				const sChoice = hostPenaltyState.shooterChoice
+				const kChoice = hostPenaltyState.keeperChoice
+				const isGoal = sChoice !== kChoice
+				netEmit('penalty_round_result', { shooterChoice: sChoice, keeperChoice: kChoice, isGoal })
+				resolvePenaltyRound(sChoice, kChoice, isGoal)
+				hostPenaltyState = { shooterChoice: null, keeperChoice: null }
+			} else {
+				netEmit('penalty_opponent_locked', {})
+			}
+		} else {
+			netEmit('penalty_submit_choice', {
+				choiceType: amIShooter ? 'shooter' : 'keeper',
+				choice: zoneNum,
+			})
+		}
 	} else {
 		// Lokal rejim: darvozabon robot random tanlaydi (1, 2, 3)
 		const robotChoice = Math.floor(Math.random() * 3) + 1
@@ -1461,28 +1481,238 @@ tabs.forEach(tab => {
 	})
 })
 
-// Create Room Action
-if (btnCreateRoom) {
-	btnCreateRoom.addEventListener('click', () => {
-		if (!socket) {
-			showToast('Server bilan aloqa mavjud emas!', 'error')
-			return
+// Helper: generate 6-digit room code
+function generateRoomCode() {
+	return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+// Setup PeerJS connection lifecycle
+function setupConnection(conn) {
+	netConn = conn
+
+	conn.on('open', () => {
+		console.log('[P2P] Aloqa o\'rnatildi!')
+		if (!isHost) {
+			netEmit('guest_join', { teamName: myTeamName })
 		}
-		myTeamName = teamNameInput.value.trim() || 'Oqlar'
-		socket.emit('create_room', { teamName: myTeamName })
-		btnCreateRoom.style.display = 'none'
-		if (createRoomInfo) createRoomInfo.style.display = 'flex'
+	})
+
+	conn.on('data', packet => {
+		if (packet && packet.event) {
+			handleNetEvent(packet.event, packet.data)
+		}
+	})
+
+	conn.on('close', () => {
+		console.warn('[P2P] Aloqa uzildi')
+		handleOpponentDisconnect()
+	})
+
+	conn.on('error', err => {
+		console.error('[P2P] Ulanish xatosi:', err)
+		showToast('Tarmoq aloqasida xatolik yuz berdi', 'error')
 	})
 }
 
-// Join Room Action
+// Opponent disconnected handler
+function handleOpponentDisconnect() {
+	stopTurnTimer()
+	if (timerInterval) clearInterval(timerInterval)
+
+	if (myRole === 'white') {
+		whiteScore = 3
+		blackScore = 0
+	} else {
+		whiteScore = 0
+		blackScore = 3
+	}
+
+	if (scores[0]) scores[0].textContent = whiteScore
+	if (scores[1]) scores[1].textContent = blackScore
+
+	const modal = document.getElementById('disconnect-modal')
+	if (modal) {
+		const msgElem = document.getElementById('disconnect-message')
+		const titleElem = document.getElementById('victory-title')
+		const leftScore = document.getElementById('winner-score-left')
+		const rightScore = document.getElementById('winner-score-right')
+		if (titleElem) titleElem.textContent = "🏆 Raqib chiqib ketdi!"
+		if (msgElem) msgElem.textContent = "Raqib o'yindan chiqib ketgani sababli sizga texnik g'alaba (3 : 0) berildi!"
+		if (leftScore) leftScore.textContent = whiteScore
+		if (rightScore) rightScore.textContent = blackScore
+		modal.style.display = 'flex'
+	}
+	showToast("🏆 Raqib chiqib ketdi, sizga 3 : 0 g'alaba berildi!", 'success')
+}
+
+// Centralized P2P Event Handler
+function handleNetEvent(event, data) {
+	switch (event) {
+		case 'guest_join': {
+			oppTeamName = data.teamName || 'Qoralar'
+			if (lobbyOverlay) lobbyOverlay.style.display = 'none'
+			showToast(`Raqib (${oppTeamName}) qo'shildi! Donalaringizni joylashtiring.`, 'success')
+			updateHud()
+			netEmit('host_welcome', {
+				teamName: myTeamName,
+				time: Time,
+				duration: duration,
+			})
+			break
+		}
+		case 'host_welcome': {
+			oppTeamName = data.teamName || 'Oqlar'
+			if (data.time) {
+				Time = data.time
+				duration = data.duration
+				updateMatchTimerDisplay()
+			}
+			if (lobbyOverlay) lobbyOverlay.style.display = 'none'
+			showToast(`Xonaga ulandingiz! Raqib: ${oppTeamName} (Oqlar)`, 'success')
+			updateHud()
+			break
+		}
+		case 'prep_move': {
+			const [x1, y1] = data.from
+			const [x2, y2] = data.to
+			if (matrix[y1] && matrix[y1][x1] && matrix[y2] && matrix[y2][x2]) {
+				matrix[y2][x2].innerHTML = matrix[y1][x1].innerHTML
+				matrix[y1][x1].innerHTML = ''
+			}
+			clearAllDots()
+			break
+		}
+		case 'timer_change': {
+			Time = data.time
+			duration = data.duration
+			updateMatchTimerDisplay()
+			break
+		}
+		case 'player_ready': {
+			oppIsReady = true
+			showToast("⚡ Raqib tayyor bo'ldi! Donalaringizni joylashtirib bo'lgach, siz ham Boshlash tugmasini bosing.", 'info')
+			if (isHost) {
+				hostReadyState.guest = true
+				if (hostReadyState.host && hostReadyState.guest) {
+					netEmit('game_started', {})
+					if (!yurish) triggerStartGame()
+				}
+			}
+			break
+		}
+		case 'game_started': {
+			if (!yurish) {
+				triggerStartGame()
+			}
+			break
+		}
+		case 'game_move': {
+			const [x1, y1] = data.from
+			const [x2, y2] = data.to
+			if (matrix[y1] && matrix[y1][x1] && matrix[y2] && matrix[y2][x2]) {
+				matrix[y2][x2].innerHTML = matrix[y1][x1].innerHTML
+				matrix[y1][x1].innerHTML = ''
+			}
+			clearAllDots()
+			changeOrder()
+			break
+		}
+		case 'turn_timeout': {
+			handleTurnTimeout(true)
+			break
+		}
+		case 'goal_scored': {
+			executeGoal(data.from, data.to, false)
+			break
+		}
+		case 'penalty_mode_started': {
+			if (!isPenalty) {
+				startPenaltyShootout()
+			}
+			break
+		}
+		case 'penalty_submit_choice': {
+			if (isHost) {
+				if (data.choiceType === 'shooter') {
+					hostPenaltyState.shooterChoice = data.choice
+				} else {
+					hostPenaltyState.keeperChoice = data.choice
+				}
+				if (hostPenaltyState.shooterChoice !== null && hostPenaltyState.keeperChoice !== null) {
+					const sChoice = hostPenaltyState.shooterChoice
+					const kChoice = hostPenaltyState.keeperChoice
+					const isGoal = sChoice !== kChoice
+					netEmit('penalty_round_result', { shooterChoice: sChoice, keeperChoice: kChoice, isGoal })
+					resolvePenaltyRound(sChoice, kChoice, isGoal)
+					hostPenaltyState = { shooterChoice: null, keeperChoice: null }
+				} else {
+					netEmit('penalty_opponent_locked', {})
+				}
+			}
+			break
+		}
+		case 'penalty_opponent_locked': {
+			oppLockedChoice = true
+			showToast("Raqib o'z tanlovini qildi va qulfladi 🔒", 'info')
+			break
+		}
+		case 'penalty_round_result': {
+			resolvePenaltyRound(data.shooterChoice, data.keeperChoice, data.isGoal)
+			break
+		}
+		case 'rematch_request': {
+			location.reload()
+			break
+		}
+	}
+}
+
+// Create Room Action (Host - PeerJS)
+if (btnCreateRoom) {
+	btnCreateRoom.addEventListener('click', () => {
+		myTeamName = teamNameInput.value.trim() || 'Barsa'
+		isHost = true
+		myRole = 'white'
+		const code = generateRoomCode()
+		currentRoomCode = code
+
+		btnCreateRoom.disabled = true
+		btnCreateRoom.textContent = 'Xona ochilmoqda...'
+
+		const peerId = 'cb-' + code
+		peer = new Peer(peerId)
+
+		peer.on('open', id => {
+			console.log('[P2P] Xona yaratildi:', id)
+			btnCreateRoom.style.display = 'none'
+			if (createRoomInfo) createRoomInfo.style.display = 'flex'
+			if (createdRoomCode) createdRoomCode.textContent = currentRoomCode
+			showToast(`Xona yaratildi (#${currentRoomCode})! Kodni do'stingizga yuboring.`, 'success')
+		})
+
+		peer.on('connection', c => {
+			setupConnection(c)
+		})
+
+		peer.on('error', err => {
+			console.error('[P2P] Xona yaratishda xato:', err)
+			if (err.type === 'unavailable-id') {
+				btnCreateRoom.disabled = false
+				btnCreateRoom.click()
+			} else {
+				showToast('Ulanish xatosi: ' + (err.message || err.type), 'error')
+				btnCreateRoom.disabled = false
+				btnCreateRoom.textContent = '✨ Yangi xona yaratish (Oqlar)'
+			}
+		})
+	})
+}
+
+// Join Room Action (Guest - PeerJS)
 if (btnJoinRoom) {
 	btnJoinRoom.addEventListener('click', () => {
-		if (!socket) {
-			showToast('Server bilan aloqa mavjud emas!', 'error')
-			return
-		}
-		const code = joinCodeInput.value.trim()
+		const rawCode = joinCodeInput.value.trim()
+		const code = rawCode.replace(/^cb-/, '')
 		if (!code) {
 			if (joinStatus) {
 				joinStatus.textContent = 'Iltimos, xona kodini kiriting!'
@@ -1490,12 +1720,35 @@ if (btnJoinRoom) {
 			}
 			return
 		}
-		myTeamName = teamNameInput.value.trim() || 'Qoralar'
-		socket.emit('join_room', { roomId: code, teamName: myTeamName })
+		myTeamName = teamNameInput.value.trim() || 'Real Madrid'
+		isHost = false
+		myRole = 'black'
+		currentRoomCode = code
+
 		if (joinStatus) {
 			joinStatus.textContent = 'Xonaga ulanmoqda...'
 			joinStatus.style.display = 'block'
+			joinStatus.style.color = '#2563eb'
 		}
+		btnJoinRoom.disabled = true
+
+		peer = new Peer()
+		peer.on('open', () => {
+			const targetPeerId = 'cb-' + code
+			const conn = peer.connect(targetPeerId, { reliable: true })
+			setupConnection(conn)
+		})
+
+		peer.on('error', err => {
+			console.error('[P2P] Ulanish xatosi:', err)
+			btnJoinRoom.disabled = false
+			if (joinStatus) {
+				joinStatus.textContent = "Xona topilmadi yoki kod noto'g'ri!"
+				joinStatus.style.color = '#dc2626'
+				joinStatus.style.display = 'block'
+			}
+			showToast("Xona topilmadi yoki kod noto'g'ri!", 'error')
+		})
 	})
 }
 
@@ -1508,6 +1761,24 @@ if (btnCopyCode) {
 				showToast('Xona kodi nusxalandi! 📋', 'success')
 				setTimeout(() => {
 					if (copyBtnText) copyBtnText.textContent = '📋 Koddan nusxa olish'
+				}, 2000)
+			})
+		}
+	})
+}
+
+// Copy Shareable Link (for direct invite)
+const btnCopyLink = document.getElementById('btn-copy-link')
+const copyLinkText = document.getElementById('copy-link-text')
+if (btnCopyLink) {
+	btnCopyLink.addEventListener('click', () => {
+		if (currentRoomCode) {
+			const shareUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomCode}`
+			navigator.clipboard.writeText(shareUrl).then(() => {
+				if (copyLinkText) copyLinkText.textContent = 'Havola nusxalandi! ✅'
+				showToast("Do'stingiz uchun havola nusxalandi! 🔗", 'success')
+				setTimeout(() => {
+					if (copyLinkText) copyLinkText.textContent = "🔗 Do'stga havola nusxalash"
 				}, 2000)
 			})
 		}
@@ -1566,191 +1837,25 @@ if (btnReturnLobby) {
 const rematchBtn = document.querySelector('.btn-res')
 if (rematchBtn) {
 	rematchBtn.onclick = () => {
-		if (isMultiplayer && socket && currentRoomCode) {
-			socket.emit('rematch_request', { roomId: currentRoomCode })
+		if (isMultiplayer) {
+			netEmit('rematch_request', {})
 		}
 		location.reload()
 	}
 }
 
-// ---------------------------------------------------
-// SOCKET.IO EVENT LISTENERS
-// ---------------------------------------------------
-if (socket) {
-	socket.on('connect', () => {
-		console.log('[Socket] Ulangan ID:', socket.id)
-	})
-
-	// Room created (Host = White)
-	socket.on('room_created', data => {
-		currentRoomCode = data.roomId
-		myRole = 'white'
-		myTeamName = data.teamName || 'Oqlar'
-		if (createdRoomCode) createdRoomCode.textContent = currentRoomCode
-		showToast(`Xona yaratildi (#${currentRoomCode})! Kodni do'stingizga yuboring.`, 'success')
-	})
-
-	// Opponent joined
-	socket.on('opponent_joined', data => {
-		oppTeamName = data.opponent?.teamName || 'Qoralar'
-		if (lobbyOverlay) lobbyOverlay.style.display = 'none'
-		showToast(`Raqib (${oppTeamName}) qo'shildi! Donalaringizni joylashtiring.`, 'success')
-		updateHud()
-	})
-
-	// Joined room (Guest = Black)
-	socket.on('room_joined', data => {
-		currentRoomCode = data.roomId
-		myRole = 'black'
-		myTeamName = data.teamName || 'Qoralar'
-		oppTeamName = data.opponent?.teamName || 'Oqlar'
-		if (data.time) {
-			Time = data.time
-			duration = data.duration
-			updateMatchTimerDisplay()
-		}
-		if (lobbyOverlay) lobbyOverlay.style.display = 'none'
-		showToast(`Xonaga ulandingiz! Raqib: ${oppTeamName} (Oqlar)`, 'success')
-		updateHud()
-	})
-
-	// Room ready
-	socket.on('room_ready', data => {
-		currentRoomCode = data.roomId
-		if (data.players && data.players.length === 2) {
-			const whitePlayer = data.players.find(p => p.role === 'white')
-			const blackPlayer = data.players.find(p => p.role === 'black')
-			if (myRole === 'white') {
-				oppTeamName = blackPlayer?.teamName || 'Qoralar'
-			} else {
-				oppTeamName = whitePlayer?.teamName || 'Oqlar'
-			}
-		}
-		if (data.time) {
-			Time = data.time
-			duration = data.duration
-			updateMatchTimerDisplay()
-		}
-		if (lobbyOverlay) lobbyOverlay.style.display = 'none'
-		updateHud()
-	})
-
-	// Error handling
-	socket.on('room_error', data => {
-		if (joinStatus) {
-			joinStatus.textContent = data.message
-			joinStatus.style.display = 'block'
-		}
-		showToast(data.message, 'error')
-	})
-
-	// Preparation move sync (before Start)
-	socket.on('prep_move', data => {
-		const [x1, y1] = data.from
-		const [x2, y2] = data.to
-		if (matrix[y1] && matrix[y1][x1] && matrix[y2] && matrix[y2][x2]) {
-			matrix[y2][x2].innerHTML = matrix[y1][x1].innerHTML
-			matrix[y1][x1].innerHTML = ''
-		}
-		clearAllDots()
-	})
-
-	// Timer change sync (both players see identical time update)
-	socket.on('timer_change', data => {
-		Time = data.time
-		duration = data.duration
-		updateMatchTimerDisplay()
-	})
-
-	// Ready status notification from opponent
-	socket.on('ready_status', data => {
-		if (data.readyPlayerId !== socket.id) {
-			oppIsReady = true
-			showToast("⚡ Raqib tayyor bo'ldi! Donalaringizni joylashtirib bo'lgach, siz ham Boshlash tugmasini bosing.", 'info')
-		}
-	})
-
-	// Game started sync (when both players are ready 2/2)
-	socket.on('game_started', () => {
-		if (!yurish) {
-			triggerStartGame()
-		}
-	})
-
-	// In-game move sync
-	socket.on('game_move', data => {
-		const [x1, y1] = data.from
-		const [x2, y2] = data.to
-		if (matrix[y1] && matrix[y1][x1] && matrix[y2] && matrix[y2][x2]) {
-			matrix[y2][x2].innerHTML = matrix[y1][x1].innerHTML
-			matrix[y1][x1].innerHTML = ''
-		}
-		clearAllDots()
-		changeOrder()
-	})
-
-	// Turn timeout sync
-	socket.on('turn_timeout', () => {
-		handleTurnTimeout(true)
-	})
-
-	// Goal scored sync
-	socket.on('goal_scored', data => {
-		executeGoal(data.from, data.to, false)
-	})
-
-	// Penalty shootout events
-	socket.on('penalty_mode_started', () => {
-		if (!isPenalty) {
-			startPenaltyShootout()
-		}
-	})
-
-	socket.on('penalty_opponent_locked', () => {
-		oppLockedChoice = true
-		showToast('Raqib o\'z tanlovini qildi va qulfladi 🔒', 'info')
-	})
-
-	socket.on('penalty_round_result', data => {
-		resolvePenaltyRound(data.shooterChoice, data.keeperChoice, data.isGoal)
-	})
-
-	// Rematch sync
-	socket.on('rematch_started', () => {
-		location.reload()
-	})
-
-	// Opponent disconnected -> Award 3:0 victory
-	socket.on('opponent_disconnected', () => {
-		stopTurnTimer()
-		if (timerInterval) clearInterval(timerInterval)
-
-		if (myRole === 'white') {
-			whiteScore = 3
-			blackScore = 0
-		} else {
-			whiteScore = 0
-			blackScore = 3
-		}
-
-		if (scores[0]) scores[0].textContent = whiteScore
-		if (scores[1]) scores[1].textContent = blackScore
-
-		const modal = document.getElementById('disconnect-modal')
-		if (modal) {
-			const msgElem = document.getElementById('disconnect-message')
-			const titleElem = document.getElementById('victory-title')
-			const leftScore = document.getElementById('winner-score-left')
-			const rightScore = document.getElementById('winner-score-right')
-			if (titleElem) titleElem.textContent = "🏆 Raqib chiqib ketdi!"
-			if (msgElem) msgElem.textContent = "Raqib o'yindan chiqib ketgani sababli sizga texnik g'alaba (3 : 0) berildi!"
-			if (leftScore) leftScore.textContent = whiteScore
-			if (rightScore) rightScore.textContent = blackScore
-			modal.style.display = 'flex'
-		}
-		showToast('🏆 Raqib chiqib ketdi, sizga 3 : 0 g\'alaba berildi!', 'success')
-	})
-}
+// Check URL query param for ?room=xxxxxx to auto-fill join input
+try {
+	const urlParams = new URLSearchParams(window.location.search)
+	const roomFromUrl = urlParams.get('room')
+	if (roomFromUrl) {
+		const cleanCode = roomFromUrl.replace(/^cb-/, '')
+		if (joinCodeInput) joinCodeInput.value = cleanCode
+		const joinTab = document.querySelector('.lobby-tab[data-tab="join"]')
+		if (joinTab) joinTab.click()
+		showToast(`Xona #${cleanCode} havolasi aniqlandi! "Xonaga kirish" tugmasini bosing.`, 'info')
+	}
+} catch (e) {}
 
 // ---------------------------------------------------
 // BOOTSTRAP INITIALIZATION
