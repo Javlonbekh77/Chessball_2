@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="uz">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>ChessBall</title>
+	<meta name="description" content="ChessBall - Shaxmat va futbol gibrid o'yini (Chess and football hybrid game)." />
+	<meta property="og:title" content="ChessBall" />
+	<meta property="og:description" content="ChessBall - Shaxmat va futbol gibrid o'yini." />
+	<meta property="og:type" content="website" />
+	<meta name="twitter:card" content="summary_large_image" />
+	<link rel="stylesheet" href="/style.css">
+	<link rel="shortcut icon" href="/images/favicon.png" type="image/x-icon">
+</head>
+
+<body>
+
+	<!-- Multiplayer Lobby Overlay -->
+	<div id="lobby-overlay" class="lobby-overlay">
+		<div class="lobby-card">
+			<div class="lobby-header">
+				<div class="lobby-title">
+					<img src="/images/favicon.png" alt="ChessBall" style="width: 32px; height: 32px; object-fit: contain;">
+					ChessBall Multiplayer
+				</div>
+				<div class="lobby-subtitle">
+					Shaxmat va Futbol gibridi — Real vaqtda 2 kishi o'ynash rejimi
+				</div>
+			</div>
+
+			<div class="lobby-form-group">
+				<label class="lobby-label" for="team-name-input">Jamoangiz nomi:</label>
+				<input type="text" id="team-name-input" class="lobby-input" placeholder="Masalan: Paxtakor, Real Madrid, Barsa..." maxlength="20" value="Barsa" />
+			</div>
+
+			<!-- Faqat 2 ta tab: Xona yaratish va Xonaga qo'shilish -->
+			<div class="lobby-tabs">
+				<button type="button" class="lobby-tab active" data-tab="create">Xona yaratish</button>
+				<button type="button" class="lobby-tab" data-tab="join">Xonaga qo'shilish</button>
+			</div>
+
+			<!-- TAB 1: XONA YARATISH -->
+			<div id="tab-create" class="lobby-tab-content active">
+				<button type="button" id="btn-create-room" class="lobby-btn">
+					<span>✨ Yangi xona yaratish (Oqlar)</span>
+				</button>
+				<div id="create-room-info" style="display: none;" class="lobby-code-box">
+					<div class="lobby-code-title">Do'stingizga yuborish uchun xona kodi:</div>
+					<div id="created-room-code" class="lobby-code-display">-----</div>
+					<button type="button" id="btn-copy-code" class="copy-btn">
+						<span id="copy-btn-text">📋 Koddan nusxa olish</span>
+					</button>
+					<div class="lobby-status-text" style="margin-top: 6px;">
+						<span class="waiting-spinner"></span>
+						<span>Raqib ulanishi kutilmoqda...</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- TAB 2: XONAGA QO'SHILISH -->
+			<div id="tab-join" class="lobby-tab-content">
+				<div class="lobby-form-group">
+					<label class="lobby-label" for="join-code-input">Xona kodini kiriting:</label>
+					<input type="text" id="join-code-input" class="lobby-input" placeholder="Masalan: 48291" maxlength="10" />
+				</div>
+				<button type="button" id="btn-join-room" class="lobby-btn">
+					<span>🚀 Xonaga kirish (Qoralar)</span>
+				</button>
+				<div id="join-status" class="lobby-status-text" style="display: none; color: #dc2626;"></div>
+			</div>
+
+			<div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 4px;">
+				<button type="button" id="btn-open-rules" class="copy-btn">
+					❓ Qoidalar
+				</button>
+				<button type="button" id="btn-play-offline" class="copy-btn" style="color: #15803d; font-weight: 700;">
+					🎮 Lokal rejimda o'ynash
+				</button>
+			</div>
+		</div>
+	</div>
+
+	<!-- Victory / Game Over Modal -->
+	<div id="disconnect-modal" class="lobby-overlay" style="display: none;">
+		<div class="lobby-card victory-card" style="max-width: 440px; text-align: center; align-items: center;">
+			<div class="victory-icon-bounce">🏆</div>
+			<div id="victory-title" class="lobby-title" style="font-size: 26px; color: #b45309;">G'alaba!</div>
+			<div class="victory-score-box">
+				<span id="winner-score-left" class="victory-score-num">3</span>
+				<span class="victory-score-sep">:</span>
+				<span id="winner-score-right" class="victory-score-num">0</span>
+			</div>
+			<div id="disconnect-message" class="lobby-subtitle" style="font-size: 15px; margin: 8px 0; color: #0f172a; font-weight: 700;">
+				O'yin yakunlandi!
+			</div>
+			<div id="penalty-final-stats" style="display: none; font-size: 13px; color: #1e293b; font-weight: 700; margin-bottom: 12px; background: #f8fafc; padding: 6px 14px; border-radius: 8px; border: 1px solid #e2e8f0;">
+				⚽ Penaltilar seriyasi: <span id="penalty-stat-display">3 : 2</span>
+			</div>
+			<button type="button" id="btn-return-lobby" class="lobby-btn" style="width: 100%;">
+				🔄 Yangi o'yin / Qayta o'ynash
+			</button>
+		</div>
+	</div>
+
+	<!-- Toast Notification -->
+	<div id="mp-toast" class="mp-toast"></div>
+
+	<!-- Rules modal -->
+	<div class="main-container">
+		<div class="madam">
+			<div class="sorov">
+				<div class="h4">Qanday o'ynashni bilasizmi?</div>
+				<div class="answer">
+					<span class="Yes">Ha</span>
+					<span class="No">Yo'q</span>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- ===================================================
+	     PENALTY SHOOTOUT MODAL & INTERACTIVE ARENA
+	     =================================================== -->
+	<div id="penalty-arena-modal" class="lobby-overlay" style="display: none;">
+		<div class="lobby-card penalty-card">
+			<div class="penalty-header">
+				<div class="penalty-title">⚽ Penaltilar Seriyasi!</div>
+				<div id="penalty-match-state" class="penalty-subtitle">
+					Asosiy vaqt durrang tugadi. G'olib penaltilarda aniqlanadi!
+				</div>
+			</div>
+
+			<!-- Penalti hisob taxtasi (Futbol uslubi: 3 tadan zarba) -->
+			<div class="penalty-score-board">
+				<div class="penalty-team">
+					<div class="penalty-team-name" id="penalty-white-name">Oqlar</div>
+					<div class="penalty-score-num" id="penalty-score-white">0</div>
+					<div class="penalty-dots" id="penalty-dots-white">
+						<span class="p-dot" id="pw-1">⚪</span>
+						<span class="p-dot" id="pw-2">⚪</span>
+						<span class="p-dot" id="pw-3">⚪</span>
+					</div>
+				</div>
+
+				<div class="penalty-vs-badge">
+					<span style="font-size: 11px; font-weight: 800; color: #64748b;">ROUND</span>
+					<span id="penalty-round-num" style="font-size: 18px; font-weight: 900; color: #0f172a;">1/3</span>
+				</div>
+
+				<div class="penalty-team">
+					<div class="penalty-team-name" id="penalty-black-name">Qoralar</div>
+					<div class="penalty-score-num" id="penalty-score-black">0</div>
+					<div class="penalty-dots" id="penalty-dots-black">
+						<span class="p-dot" id="pb-1">⚪</span>
+						<span class="p-dot" id="pb-2">⚪</span>
+						<span class="p-dot" id="pb-3">⚪</span>
+					</div>
+				</div>
+			</div>
+
+			<!-- 10 soniyalik Penalti Taymeri va Navbat Ko'rsatgichi -->
+			<div class="penalty-timer-banner">
+				<div class="penalty-timer-pill" id="penalty-timer-pill">
+					<span>⏱️</span>
+					<span id="penalty-timer-count">10s</span>
+				</div>
+				<div id="penalty-turn-indicator" class="penalty-turn-indicator">
+					Sizning navbatingiz! To'pni burchakka teping.
+				</div>
+			</div>
+
+			<!-- Penalti Darvozasi (3 ta sektor: Chap, Markaz, O'ng) -->
+			<div class="penalty-goal-field">
+				<div class="penalty-goal-post">
+					<!-- Darvoza to'ri va 3 ta burchak tugmasi -->
+					<div class="goal-zone-box" id="goal-zone-1" data-zone="1">
+						<span class="zone-label">Chap</span>
+						<span class="zone-icon">🎯</span>
+					</div>
+					<div class="goal-zone-box" id="goal-zone-2" data-zone="2">
+						<span class="zone-label">Markaz</span>
+						<span class="zone-icon">🎯</span>
+					</div>
+					<div class="goal-zone-box" id="goal-zone-3" data-zone="3">
+						<span class="zone-label">O'ng</span>
+						<span class="zone-icon">🎯</span>
+					</div>
+
+					<!-- Dinamik sakrovchi Darvozabon -->
+					<img id="penalty-keeper-anim" class="penalty-keeper-piece" src="/images/pieces/white/rook.png" alt="Darvozabon" />
+				</div>
+
+				<!-- Penalti nuqtasi va to'p -->
+				<div class="penalty-spot-area">
+					<div class="penalty-spot">
+						<img id="penalty-ball-anim" class="penalty-ball-piece" src="/images/ball.jpg" alt="To'p" />
+					</div>
+				</div>
+			</div>
+
+			<!-- Tanlov holati matni -->
+			<div id="penalty-action-status" class="penalty-action-status">
+				Darvozani bosib yo'nalishni tanlang yoki to'pni bosing!
+			</div>
+		</div>
+	</div>
+
+	<!-- ===================================================
+	     MAIN STADIUM BOARD & SCOREBOARD
+	     =================================================== -->
+	<div class="container">
+		<!-- In-Game Multiplayer Status Bar & Unified Stadium Scoreboard -->
+		<div id="mp-status-bar" class="mp-status-bar">
+			<!-- White Team (Left) -->
+			<div class="mp-team-card white-team-card">
+				<img class="king white-king-img" src="/images/pieces/white/king.png" alt="Oq Shoh">
+				<div class="team-details">
+					<div class="team-name-row">
+						<span id="white-team-display" class="team-name-text">Oqlar</span>
+						<span id="white-role-badge" class="mp-role-tag mp-role-white">Siz</span>
+					</div>
+					<span class="team-color-indicator">⚪ Oqlar</span>
+				</div>
+				<div class="score-badge white-score-badge">
+					<span class="score">0</span>
+				</div>
+			</div>
+
+			<!-- Center Hub: Match Timer, Ready/Start button & 15s Turn Timer -->
+			<div class="mp-center-hub">
+				<!-- Match duration timer & Ready/Start button -->
+				<div class="match-time-row">
+					<div class="time-sec">
+						<button type="button" class="pluss minus" title="Vaqtni kamaytirish">−</button>
+						<span id="time" class="time">10:00</span>
+						<button type="button" class="pluss" title="Vaqtni oshirish">+</button>
+					</div>
+					<button type="button" class="btn-start" id="btn-start-game">O'yinni Boshlash</button>
+					<div id="mp-room-badge" class="mp-room-badge" title="Xona kodidan nusxa olish">
+						<span>#<span id="hud-room-code">-----</span></span>
+						<span style="font-size: 11px;">📋</span>
+					</div>
+				</div>
+
+				<!-- 15s Turn Timer & Turn Banner -->
+				<div class="turn-timer-block">
+					<div class="turn-timer-header">
+						<div class="turn-countdown-badge" id="turn-timer-badge">
+							<span class="turn-clock-icon">⏱️</span>
+							<span id="turn-timer-display" class="turn-timer-digits">15s</span>
+						</div>
+						<div id="mp-turn-banner" class="mp-turn-banner mp-my-turn">Tayyorgarlik bosqichi</div>
+					</div>
+					<div class="turn-progress-track">
+						<div id="turn-progress-bar" class="turn-progress-bar" style="width: 100%;"></div>
+					</div>
+				</div>
+
+				<div class="info-sec" style="display: none;">Yurish navbati: <span class="move-color-black">Oq</span></div>
+			</div>
+
+			<!-- Black Team (Right) -->
+			<div class="mp-team-card black-team-card">
+				<div class="score-badge black-score-badge">
+					<span class="score">0</span>
+				</div>
+				<div class="team-details text-right">
+					<div class="team-name-row" style="justify-content: flex-end;">
+						<span id="black-role-badge" class="mp-role-tag mp-role-black" style="display: none;">Siz</span>
+						<span id="black-team-display" class="team-name-text">Qoralar</span>
+					</div>
+					<span class="team-color-indicator">⚫ Qoralar</span>
+				</div>
+				<img class="king black-king-img" src="/images/pieces/black/king.png" alt="Qora Shoh">
+			</div>
+		</div>
+
+		<!-- Stadium Celebration Goal Banner -->
+		<div class="goall">
+			<div class="goal-banner-content">
+				<span class="goal-anim-ball">⚽</span>
+				<span class="goal-anim-text">GOOOAL!</span>
+				<span class="goal-anim-ball">⚽</span>
+			</div>
+		</div>
+		<!-- Pitch Container: unites top goal, 9x9 field, and bottom goal seamlessly -->
+		<div class="pitch-container" id="pitch-container">
+			<!-- Yuqorigi darvoza (Qoralar darvozasi - 3 ta katak) -->
+			<div class="goal-keeping-zone-1 top-goal" id="top-goal">
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+			</div>
+			<div class="main-matrix">
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+			</div>
+			<!-- Pastki darvoza (Oqlar darvozasi - 3 ta katak) -->
+			<div class="goal-keeping-zone-1 bottom-goal" id="bottom-goal">
+				<div class="squad"></div>
+				<div class="squad"></div>
+				<div class="squad"></div>
+			</div>
+		</div>
+
+	</div>
+	<div class="container-1">
+		<div id="live" class="live">
+			<img id="king1" class="king " src="/images/pieces/white/king.png" alt="">
+			<span class="score1">0</span>
+			<h3>vs</h3>
+			<span class="score1">0</span>
+			<img id="king1" class="king" src="/images/pieces/black/king.png" alt="">
+		</div>
+		<div class="restart-sec">
+			<button class="button-82-pushable btn-res" role="button">
+				<span class="button-82-shadow"></span>
+				<span class="button-82-edge"></span>
+				<span class="button-82-front text">
+					Rematch
+				</span>
+			</button>
+		</div>
+	</div>
+
+	<script src="/socket.io/socket.io.js"></script>
+	<script type="module" src="/script.js"></script>
+</body>
+
+</html>

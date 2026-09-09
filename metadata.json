@@ -1,0 +1,6 @@
+{
+  "name": "ChessBall",
+  "description": "ChessBall - Shaxmat va futbol gibrid o'yini (Chess and football hybrid game cloned from GitHub).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
