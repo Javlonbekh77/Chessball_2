@@ -2,21 +2,6 @@
 // CHESSBALL - ULTIMATE MULTIPLAYER & PENALTY ENGINE
 // ===================================================
 
-import Paho from 'paho-mqtt'
-
-function getPaho() {
-	if (typeof window !== 'undefined' && window.Paho) {
-		return window.Paho
-	}
-	return Paho
-}
-
-// Global robust MQTT brokers with automatic fallback
-const MQTT_BROKERS = [
-	{ host: 'broker.hivemq.com', port: 8884, path: '/mqtt', ssl: true },
-	{ host: 'broker.emqx.io', port: 8084, path: '/mqtt', ssl: true }
-]
-
 const matrixContent = document.querySelector('.main-matrix')
 const squadsBoard = Array.from(matrixContent ? matrixContent.querySelectorAll('.squad') : [])
 const topGoalSquads = Array.from(document.querySelectorAll('.goal-keeping-zone-1.top-goal .squad, .goal-keeping-zone-1:first-of-type .squad'))
@@ -45,8 +30,8 @@ let blackScore = 0
 let turnSeconds = 15
 let turnTimerInterval = null
 
-// MULTIPLAYER STATE (P2P via PeerJS)
-let isMultiplayer = true
+// MULTIPLAYER STATE (Realtime via standard HTTPS/SSE)
+let isMultiplayer = false
 let myRole = 'white' // 'white' | 'black'
 let isHost = false
 let myTeamName = 'Barsa'
@@ -55,124 +40,92 @@ let currentRoomCode = null
 let myIsReady = false
 let oppIsReady = false
 
-let mqttClient = null
-let isMqttConnected = false
-let currentBrokerIdx = 0
+let netSource = null
+let seenMessageIds = new Set()
 let lastOpponentHeartbeat = 0
 let hostReadyState = { host: false, guest: false }
 
-// Reliable Real-time Event Emitter (MQTT)
+// Reliable Real-time Event Emitter (HTTPS POST)
 function netEmit(event, data = {}) {
-	if (!mqttClient || !isMqttConnected || !currentRoomCode) return
-	const PahoModule = getPaho()
-	const targetTopic = `chessball/${currentRoomCode}/${isHost ? 'to_guest' : 'to_host'}`
+	if (!currentRoomCode) return
+	const targetTopic = `cb_${currentRoomCode}_${isHost ? 'guest' : 'host'}`
 	const payload = JSON.stringify({
 		event,
 		data,
 		sender: isHost ? 'host' : 'guest',
 		time: Date.now()
 	})
-	try {
-		const message = new PahoModule.Message(payload)
-		message.destinationName = targetTopic
-		message.qos = 1
-		mqttClient.send(message)
-	} catch (e) {
+	fetch(`https://ntfy.sh/${targetTopic}`, {
+		method: 'POST',
+		body: payload
+	}).catch(e => {
 		console.error('[NET] Xabar yuborishda xato:', e)
-	}
-}
-
-// Global MQTT Broker Connection Handler
-function connectMqttBroker(onSuccess, onError) {
-	if (mqttClient && isMqttConnected) {
-		onSuccess()
-		return
-	}
-
-	if (mqttClient) {
-		try {
-			mqttClient.disconnect()
-		} catch (e) {}
-		mqttClient = null
-		isMqttConnected = false
-	}
-
-	const PahoModule = getPaho()
-	const broker = MQTT_BROKERS[currentBrokerIdx]
-	const clientId = 'cb_' + (isHost ? 'h_' : 'g_') + Math.random().toString(36).substring(2, 10)
-
-	console.log(`[NET] Serverga ulanmoqda: ${broker.host}:${broker.port}...`)
-	const client = new PahoModule.Client(broker.host, broker.port, broker.path, clientId)
-
-	let hasCalledBack = false
-
-	client.onConnectionLost = responseObject => {
-		isMqttConnected = false
-		console.warn('[NET] Server bilan aloqa uzildi:', responseObject ? responseObject.errorMessage : 'Nomalum')
-		if (isMultiplayer) {
-			showToast("Tarmoq bilan aloqa uzildi, qayta ulanmoqda...", 'warning')
-			setTimeout(() => {
-				connectMqttBroker(() => {
-					if (currentRoomCode) {
-						const myTopic = `chessball/${currentRoomCode}/${isHost ? 'to_host' : 'to_guest'}`
-						client.subscribe(myTopic, { qos: 1 })
-						showToast("Tarmoqqa qayta ulandi!", 'success')
-					}
-				}, () => {})
-			}, 2000)
-		}
-	}
-
-	client.onMessageArrived = message => {
-		try {
-			const payload = JSON.parse(message.payloadString)
-			if (payload && payload.event) {
-				if (payload.event === 'heartbeat') {
-					lastOpponentHeartbeat = Date.now()
-					return
-				}
-				handleNetEvent(payload.event, payload.data)
-			}
-		} catch (e) {
-			console.error('[NET] Xabarni o\'qishda xato:', e)
-		}
-	}
-
-	client.connect({
-		useSSL: broker.ssl,
-		timeout: 6,
-		keepAliveInterval: 30,
-		cleanSession: true,
-		onSuccess: () => {
-			if (hasCalledBack) return
-			hasCalledBack = true
-			mqttClient = client
-			isMqttConnected = true
-			console.log(`[NET] ${broker.host} ga muvaffaqiyatli ulandi!`)
-			onSuccess()
-		},
-		onFailure: err => {
-			if (hasCalledBack) return
-			hasCalledBack = true
-			console.warn(`[NET] ${broker.host} ga ulanish muvaffaqiyatsiz bo'ldi:`, err)
-			if (currentBrokerIdx < MQTT_BROKERS.length - 1) {
-				currentBrokerIdx++
-				console.log(`[NET] Zaxira serverga o'tilmoqda: ${MQTT_BROKERS[currentBrokerIdx].host}...`)
-				connectMqttBroker(onSuccess, onError)
-			} else {
-				currentBrokerIdx = 0
-				onError(err)
-			}
-		}
 	})
 }
 
-// Disconnect monitor
+// Real-time Event Listener (Native SSE over standard HTTPS port 443)
+function startNetListener() {
+	if (!currentRoomCode) return
+	if (netSource) {
+		try {
+			netSource.close()
+		} catch (e) {}
+		netSource = null
+	}
+	const myTopic = `cb_${currentRoomCode}_${isHost ? 'host' : 'guest'}`
+	console.log('[NET] Tinglovchi faollashtirildi:', myTopic)
+	try {
+		netSource = new EventSource(`https://ntfy.sh/${myTopic}/sse`)
+
+		netSource.onmessage = event => {
+			try {
+				const raw = JSON.parse(event.data)
+				if (raw.event === 'message' && raw.message) {
+					if (raw.id) {
+						if (seenMessageIds.has(raw.id)) return
+						seenMessageIds.add(raw.id)
+						if (seenMessageIds.size > 200) {
+							const first = seenMessageIds.values().next().value
+							seenMessageIds.delete(first)
+						}
+					}
+					let packet = null
+					if (typeof raw.message === 'string') {
+						try {
+							packet = JSON.parse(raw.message)
+						} catch (e) {
+							packet = raw.message
+						}
+					} else {
+						packet = raw.message
+					}
+					if (packet && packet.event) {
+						if (packet.event === 'heartbeat') {
+							lastOpponentHeartbeat = Date.now()
+							return
+						}
+						handleNetEvent(packet.event, packet.data)
+					}
+				}
+			} catch (err) {
+				console.error("[NET] Xabarni o'qishda xatolik:", err)
+			}
+		}
+
+		netSource.onerror = () => {
+			console.warn('[NET] Aloqada vaqtinchalik uzilish, avtomatik qayta tiklanmoqda...')
+		}
+	} catch (e) {
+		console.error('[NET] EventSource xatosi:', e)
+	}
+}
+
+// Disconnect & Heartbeat monitor
 setInterval(() => {
-	if (isMultiplayer && isMqttConnected) {
+	if (isMultiplayer && currentRoomCode) {
 		netEmit('heartbeat', {})
-		if (lastOpponentHeartbeat > 0 && Date.now() - lastOpponentHeartbeat > 20000) {
-			console.warn('[NET] Raqibdan signal yo\'qoldi (20s). Chiqib ketgan deb hisoblanadi.')
+		if (lastOpponentHeartbeat > 0 && Date.now() - lastOpponentHeartbeat > 25000) {
+			console.warn("[NET] Raqibdan signal yo'qoldi (25s). Chiqib ketgan deb hisoblanadi.")
 			lastOpponentHeartbeat = 0
 			handleOpponentDisconnect()
 		}
@@ -1604,7 +1557,7 @@ function handleNetEvent(event, data) {
 	}
 }
 
-// Create Room Action (Host - MQTT)
+// Create Room Action (Host - HTTPS/SSE)
 function initHostRoom(forcedCode = null) {
 	myTeamName = (teamNameInput ? teamNameInput.value.trim() : '') || 'Barsa'
 	isHost = true
@@ -1620,39 +1573,13 @@ function initHostRoom(forcedCode = null) {
 	const hostStatusMsg = document.getElementById('host-status-msg')
 	const hostSpinner = document.querySelector('#host-status .waiting-spinner')
 	if (hostStatusMsg) {
-		hostStatusMsg.textContent = 'Serverga ulanmoqda...'
-		hostStatusMsg.style.color = '#2563eb'
+		hostStatusMsg.textContent = `🟢 Xona faol (#${currentRoomCode})! Raqib (Qoralar) ulanishi kutilmoqda...`
+		hostStatusMsg.style.color = '#15803d'
 	}
-	if (hostSpinner) hostSpinner.style.display = 'inline-block'
+	if (hostSpinner) hostSpinner.style.display = 'none'
 
-	connectMqttBroker(
-		() => {
-			const hostTopic = `chessball/${currentRoomCode}/to_host`
-			try {
-				if (mqttClient) {
-					mqttClient.subscribe(hostTopic, { qos: 1 })
-					console.log('[NET] Xona eshituvchisi sozlandi:', hostTopic)
-				}
-				if (hostStatusMsg) {
-					hostStatusMsg.textContent = `🟢 Xona faol (#${currentRoomCode})! Raqib (Qoralar) ulanishi kutilmoqda...`
-					hostStatusMsg.style.color = '#15803d'
-				}
-				if (hostSpinner) hostSpinner.style.display = 'none'
-				showToast(`Xona (#${currentRoomCode}) tayyor! Kodni do'stingizga yuboring.`, 'success')
-			} catch (e) {
-				console.error('[NET] Xona subscribe xatosi:', e)
-			}
-		},
-		err => {
-			console.error('[NET] Xona xatosi:', err)
-			if (hostStatusMsg) {
-				hostStatusMsg.textContent = "Serverga ulanishda xato. 'Yangi kod yaratish' tugmasini bosing."
-				hostStatusMsg.style.color = '#dc2626'
-			}
-			if (hostSpinner) hostSpinner.style.display = 'none'
-			showToast("Serverga ulanib bo'lmadi. Qaytadan urinib ko'ring.", 'error')
-		}
-	)
+	startNetListener()
+	showToast(`Xona (#${currentRoomCode}) tayyor! Kodni do'stingizga yuboring.`, 'success')
 }
 
 if (btnCreateRoom) {
@@ -1661,7 +1588,7 @@ if (btnCreateRoom) {
 	})
 }
 
-// Join Room Action (Guest - MQTT)
+// Join Room Action (Guest - HTTPS/SSE)
 if (btnJoinRoom) {
 	btnJoinRoom.addEventListener('click', () => {
 		const rawCode = joinCodeInput ? joinCodeInput.value.trim() : ''
@@ -1681,56 +1608,29 @@ if (btnJoinRoom) {
 		isMultiplayer = false
 
 		if (joinStatus) {
-			joinStatus.textContent = 'Serverga ulanmoqda...'
+			joinStatus.textContent = "Xonaga ulanilmoqda, xona egasi kutilmoqda..."
 			joinStatus.style.display = 'block'
 			joinStatus.style.color = '#2563eb'
 		}
 		btnJoinRoom.disabled = true
 
-		connectMqttBroker(
-			() => {
-				const guestTopic = `chessball/${currentRoomCode}/to_guest`
-				try {
-					if (mqttClient) {
-						mqttClient.subscribe(guestTopic, { qos: 1 })
-						console.log('[NET] Guest xona eshituvchisi sozlandi:', guestTopic)
-					}
-					if (joinStatus) {
-						joinStatus.textContent = "Xonaga so'rov yuborildi, kutilmoqda..."
-						joinStatus.style.color = '#15803d'
-					}
+		startNetListener()
 
-					let attempts = 0
-					const sendJoinHandshake = () => {
-						if (!isMultiplayer && attempts < 15) {
-							attempts++
-							netEmit('guest_join', { teamName: myTeamName })
-							setTimeout(sendJoinHandshake, 1200)
-						} else if (!isMultiplayer && attempts >= 15) {
-							btnJoinRoom.disabled = false
-							if (joinStatus) {
-								joinStatus.textContent = "Xona egasidan javob kelmadi. Kod to'g'riligini tekshiring."
-								joinStatus.style.color = '#dc2626'
-							}
-						}
-					}
-					sendJoinHandshake()
-				} catch (e) {
-					console.error('[NET] Join subscribe xatosi:', e)
-					btnJoinRoom.disabled = false
-				}
-			},
-			err => {
-				console.error('[NET] Join xatosi:', err)
+		let attempts = 0
+		const sendJoinHandshake = () => {
+			if (!isMultiplayer && attempts < 20) {
+				attempts++
+				netEmit('guest_join', { teamName: myTeamName })
+				setTimeout(sendJoinHandshake, 1000)
+			} else if (!isMultiplayer && attempts >= 20) {
 				btnJoinRoom.disabled = false
 				if (joinStatus) {
-					joinStatus.textContent = "Serverga ulanishda xato yuz berdi!"
+					joinStatus.textContent = "Xona egasidan javob kelmadi. Kod to'g'riligini tekshiring."
 					joinStatus.style.color = '#dc2626'
-					joinStatus.style.display = 'block'
 				}
-				showToast("Serverga ulanib bo'lmadi", 'error')
 			}
-		)
+		}
+		sendJoinHandshake()
 	})
 }
 
