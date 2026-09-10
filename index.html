@@ -123,93 +123,6 @@
 	</div>
 
 	<!-- ===================================================
-	     PENALTY SHOOTOUT MODAL & INTERACTIVE ARENA
-	     =================================================== -->
-	<div id="penalty-arena-modal" class="lobby-overlay" style="display: none;">
-		<div class="lobby-card penalty-card">
-			<div class="penalty-header">
-				<div class="penalty-title">⚽ Penaltilar Seriyasi!</div>
-				<div id="penalty-match-state" class="penalty-subtitle">
-					Asosiy vaqt durrang tugadi. G'olib penaltilarda aniqlanadi!
-				</div>
-			</div>
-
-			<!-- Penalti hisob taxtasi (Futbol uslubi: 3 tadan zarba) -->
-			<div class="penalty-score-board">
-				<div class="penalty-team">
-					<div class="penalty-team-name" id="penalty-white-name">Oqlar</div>
-					<div class="penalty-score-num" id="penalty-score-white">0</div>
-					<div class="penalty-dots" id="penalty-dots-white">
-						<span class="p-dot" id="pw-1">⚪</span>
-						<span class="p-dot" id="pw-2">⚪</span>
-						<span class="p-dot" id="pw-3">⚪</span>
-					</div>
-				</div>
-
-				<div class="penalty-vs-badge">
-					<span style="font-size: 11px; font-weight: 800; color: #64748b;">ROUND</span>
-					<span id="penalty-round-num" style="font-size: 18px; font-weight: 900; color: #0f172a;">1/3</span>
-				</div>
-
-				<div class="penalty-team">
-					<div class="penalty-team-name" id="penalty-black-name">Qoralar</div>
-					<div class="penalty-score-num" id="penalty-score-black">0</div>
-					<div class="penalty-dots" id="penalty-dots-black">
-						<span class="p-dot" id="pb-1">⚪</span>
-						<span class="p-dot" id="pb-2">⚪</span>
-						<span class="p-dot" id="pb-3">⚪</span>
-					</div>
-				</div>
-			</div>
-
-			<!-- 10 soniyalik Penalti Taymeri va Navbat Ko'rsatgichi -->
-			<div class="penalty-timer-banner">
-				<div class="penalty-timer-pill" id="penalty-timer-pill">
-					<span>⏱️</span>
-					<span id="penalty-timer-count">10s</span>
-				</div>
-				<div id="penalty-turn-indicator" class="penalty-turn-indicator">
-					Sizning navbatingiz! To'pni burchakka teping.
-				</div>
-			</div>
-
-			<!-- Penalti Darvozasi (3 ta sektor: Chap, Markaz, O'ng) -->
-			<div class="penalty-goal-field">
-				<div class="penalty-goal-post">
-					<!-- Darvoza to'ri va 3 ta burchak tugmasi -->
-					<div class="goal-zone-box" id="goal-zone-1" data-zone="1">
-						<span class="zone-label">Chap</span>
-						<span class="zone-icon">🎯</span>
-					</div>
-					<div class="goal-zone-box" id="goal-zone-2" data-zone="2">
-						<span class="zone-label">Markaz</span>
-						<span class="zone-icon">🎯</span>
-					</div>
-					<div class="goal-zone-box" id="goal-zone-3" data-zone="3">
-						<span class="zone-label">O'ng</span>
-						<span class="zone-icon">🎯</span>
-					</div>
-
-					<!-- Dinamik sakrovchi Darvozabon -->
-					<img id="penalty-keeper-anim" class="penalty-keeper-piece" src="/images/pieces/white/rook.png" alt="Darvozabon" />
-				</div>
-
-				<!-- Penalti nuqtasi va to'p -->
-				<div class="penalty-spot-area">
-					<div class="penalty-spot">
-						<img id="penalty-ball-anim" class="penalty-ball-piece" src="/images/ball.jpg" alt="To'p" />
-					</div>
-				</div>
-			</div>
-
-			<!-- Tanlov holati matni -->
-			<div id="penalty-action-status" class="penalty-action-status">
-				Darvozani bosib yo'nalishni tanlang yoki to'pni bosing!
-			</div>
-		</div>
-	</div>
-
-	<!-- ===================================================
 	     MAIN STADIUM BOARD & SCOREBOARD
 	     =================================================== -->
 	<div class="container">
@@ -287,8 +200,12 @@
 				<span class="goal-anim-ball">⚽</span>
 			</div>
 		</div>
-		<!-- Pitch Container: unites top goal, 9x9 field, and bottom goal seamlessly -->
+		<!-- Pitch Container: unites keeper zone, top goal, 9x9 field, and bottom goal seamlessly -->
 		<div class="pitch-container" id="pitch-container">
+			<!-- Penalti darvozaboni katagi (faqat penaltilar seriyasida chiqadi) -->
+			<div class="goal-keeping-zone-1 keeper-zone" id="keeper-zone">
+				<div class="squad"></div>
+			</div>
 			<!-- Yuqorigi darvoza (Qoralar darvozasi - 3 ta katak) -->
 			<div class="goal-keeping-zone-1 top-goal" id="top-goal">
 				<div class="squad"></div>

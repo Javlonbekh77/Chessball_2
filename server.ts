@@ -46,7 +46,7 @@ async function startServer() {
     },
   });
 
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   // Socket.io Multiplayer Game Logic
   io.on('connection', (socket) => {

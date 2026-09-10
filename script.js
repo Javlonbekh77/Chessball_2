@@ -44,19 +44,7 @@ let oppIsReady = false
 
 let peer = null
 let netConn = null
-let hostPenaltyState = { shooterChoice: null, keeperChoice: null }
 let hostReadyState = { host: false, guest: false }
-
-// PENALTY STATE (Best of 3 + Sudden Death)
-let penaltyRound = 1
-let penaltySubRound = 0 // 0 = White shoots, Black saves; 1 = Black shoots, White saves
-let penaltyScores = { white: 0, black: 0 }
-let penaltyHistory = { white: [], black: [] }
-let penaltyTimerInterval = null
-let penaltySeconds = 10
-let myPenaltyChoice = null
-let oppLockedChoice = false
-let penaltyInProgress = false
 
 // P2P Net Event Emitter
 function netEmit(event, data = {}) {
@@ -636,40 +624,16 @@ function Piece1(x, y) {
 function showDots(y, x, name) {
 	Dots = true
 	if (name == 'rook') {
+		// Darvozabon faqat darvoza chizig'ida chapga va o'ngga 1 katak harakatlanadi
+		selectedItems = [x, y]
 		if (2 < x - 1 && matrix[y][x - 1].innerHTML == '') {
 			matrix[y][x - 1].innerHTML = "<div class='dot-action'></div>"
 		}
 		if (x + 1 < 6 && matrix[y][x + 1].innerHTML == '') {
 			matrix[y][x + 1].innerHTML = "<div class='dot-action'></div>"
 		}
-	}
-	if (name == 'bishop') {
-		selectedItems = [x, y]
-		let row, column
-		for (let i = 0; i < 4; i++) {
-			let items = mass[i]
-			if (items[0] == 0) column = x - 1
-			else column = x + 1
-			if (items[1] == 0) row = y - 1
-			else row = y + 1
-			while (
-				0 <= column &&
-				column <= 8 &&
-				1 <= row &&
-				row <= 9 &&
-				matrix[row] &&
-				matrix[row][column] &&
-				matrix[row][column].innerHTML == ''
-			) {
-				matrix[row][column].innerHTML = "<div class='dot-action'></div>"
-				if (items[0] == 0) column--
-				else column++
-				if (items[1] == 0) row--
-				else row++
-			}
-		}
-	}
-	if (name == 'knight') {
+	} else {
+		// Darvozabondan tashqari hamma dona (fil, ot) FAQAT bitta katak yuradi!
 		selectedItems = [x, y]
 		Piece(x, y)
 	}
@@ -952,27 +916,42 @@ function currentRules() {
 					clearAllDots()
 					Ball(index % 9, Math.floor(index / 9) + 1)
 				} else if (
-					item.childNodes[0].classList.contains('piece') &&
+					item.childNodes[0].classList.contains('rook') &&
 					Dots == false
 				) {
 					if (isMultiplayer) {
-						const isWhite = item.childNodes[0].classList.contains('white-pieces')
-						const isBlack = item.childNodes[0].classList.contains('black-pieces')
+						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
+						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
 						if (myRole === 'white' && (!isWhite || Order !== false)) return
 						if (myRole === 'black' && (!isBlack || Order !== true)) return
 					} else {
-						const isWhite = item.childNodes[0].classList.contains('white-pieces')
-						const isBlack = item.childNodes[0].classList.contains('black-pieces')
+						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
+						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
 						if (Order === false && !isWhite) return
 						if (Order === true && !isBlack) return
 					}
 
-					let name
-					if (item.childNodes[0].classList.contains('rook')) name = 'rook'
-					else if (item.childNodes[0].classList.contains('bishop')) name = 'bishop'
-					else name = 'knight'
+					selectedItems = [index % 9, Math.floor(index / 9) + 1]
+					showDots(Math.floor(index / 9) + 1, index % 9, 'rook')
+				} else if (
+					item.childNodes[0].classList.contains('piece') &&
+					Dots == false
+				) {
+					if (isMultiplayer) {
+						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
+						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
+						if (myRole === 'white' && (!isWhite || Order !== false)) return
+						if (myRole === 'black' && (!isBlack || Order !== true)) return
+					} else {
+						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
+						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
+						if (Order === false && !isWhite) return
+						if (Order === true && !isBlack) return
+					}
 
-					showDots(Math.floor(index / 9) + 1, index % 9, name)
+					// HAMMA DONALAR (FIL VA OT) BIR XIL: FAQAT 1 TA KATAK ATROFIDA YURADI!
+					selectedItems = [index % 9, Math.floor(index / 9) + 1]
+					Piece(index % 9, Math.floor(index / 9) + 1)
 				} else {
 					clearAllDots()
 				}
@@ -1102,7 +1081,7 @@ function startTimer() {
 				}, 1500)
 			} else {
 				// Kimdir yutdi
-				showFinalWinnerModal(false)
+				Winning()
 			}
 		}
 
@@ -1111,341 +1090,222 @@ function startTimer() {
 }
 
 // ---------------------------------------------------
-// PENALTY SHOOTOUT ENGINE (Best of 3 + Sudden Death)
+// PENALTY SHOOTOUT (Original pitch-based mechanism)
 // ---------------------------------------------------
-const penaltyModal = document.getElementById('penalty-arena-modal')
-const penaltyRoundDisplay = document.getElementById('penalty-round-num')
-const penaltyScoreWhiteDisplay = document.getElementById('penalty-score-white')
-const penaltyScoreBlackDisplay = document.getElementById('penalty-score-black')
-const penaltyTimerCount = document.getElementById('penalty-timer-count')
-const penaltyTimerPill = document.getElementById('penalty-timer-pill')
-const penaltyTurnIndicator = document.getElementById('penalty-turn-indicator')
-const penaltyActionStatus = document.getElementById('penalty-action-status')
-const penaltyKeeperAnim = document.getElementById('penalty-keeper-anim')
-const penaltyBallAnim = document.getElementById('penalty-ball-anim')
-
-function startPenaltyShootout() {
+function startPenaltyShootout(emit = true) {
 	isPenalty = true
-	penaltyInProgress = true
-	penaltyRound = 1
-	penaltySubRound = 0
-	penaltyScores = { white: 0, black: 0 }
-	penaltyHistory = { white: [], black: [] }
+	stopTurnTimer()
+	if (timerInterval) clearInterval(timerInterval)
 
-	if (penaltyModal) penaltyModal.style.display = 'flex'
+	const timeElem = document.querySelector('.time')
+	if (timeElem) timeElem.textContent = 'PENALTI'
 
-	// Update team names in penalty header
-	const pwName = document.getElementById('penalty-white-name')
-	const pbName = document.getElementById('penalty-black-name')
-	if (pwName) pwName.textContent = myRole === 'white' ? myTeamName : oppTeamName
-	if (pbName) pbName.textContent = myRole === 'black' ? myTeamName : oppTeamName
+	if (emit && isMultiplayer) {
+		netEmit('penalty_mode_started', {})
+	}
 
-	setupPenaltyRoundUI()
+	Penalty(emit)
 }
 
-function setupPenaltyRoundUI() {
-	myPenaltyChoice = null
-	oppLockedChoice = false
+function Penalty(emit = true) {
+	Gs++
+	isPenalty = true
+	stopTurnTimer()
+	clearMatrix()
+	clearAllDots()
 
-	// Round va subround hisobi
-	// penaltySubRound: 0 = Oqlar tepadi, Qoralar darvozabon; 1 = Qoralar tepadi, Oqlar darvozabon
-	const currentTurnTeam = penaltySubRound % 2 === 0 ? 'Oqlar' : 'Qoralar'
-	const isWhiteShooting = penaltySubRound % 2 === 0
-	const currentRoundNum = Math.floor(penaltySubRound / 2) + 1
+	let option
+	// If Order === true (Black shoots), White keeper defends
+	// If Order === false (White shoots), Black keeper defends
+	if (Order) option = ['white', 'black']
+	else option = ['black', 'white']
 
-	if (penaltyRoundDisplay) {
-		penaltyRoundDisplay.textContent = currentRoundNum <= 3 ? `${currentRoundNum}/3` : `Oltin ${currentRoundNum}`
+	// Goalkeeper zone above the top goal
+	const keeperZone = document.getElementById('keeper-zone')
+	if (keeperZone) {
+		keeperZone.classList.add('show')
+		keeperZone.style.display = 'flex'
 	}
 
-	// Update scores
-	if (penaltyScoreWhiteDisplay) penaltyScoreWhiteDisplay.textContent = penaltyScores.white
-	if (penaltyScoreBlackDisplay) penaltyScoreBlackDisplay.textContent = penaltyScores.black
-
-	// Reset ball and goalkeeper animation positions
-	if (penaltyKeeperAnim) {
-		penaltyKeeperAnim.className = 'penalty-keeper-piece'
-		penaltyKeeperAnim.src = isWhiteShooting
-			? '/images/pieces/black/rook.png' // Qoralar darvozabon
-			: '/images/pieces/white/rook.png' // Oqlar darvozabon
-	}
-	if (penaltyBallAnim) {
-		penaltyBallAnim.className = 'penalty-ball-piece'
+	const sq1 = keeperZone ? keeperZone.querySelector('.squad') : null
+	if (sq1) {
+		sq1.innerHTML = `<img class="${option[0]}-rook rook" src="/images/pieces/${option[0]}/rook.png" alt="Darvozabon">`
 	}
 
-	// Remove selected border from zones
-	for (let i = 1; i <= 3; i++) {
-		const zone = document.getElementById(`goal-zone-${i}`)
-		if (zone) zone.classList.remove('selected')
+	// Ball at (4, 2)
+	if (matrix[2] && matrix[2][4]) {
+		matrix[2][4].innerHTML = '<img src="/images/ball.jpg" alt="" class="ball">'
 	}
 
-	// Aniq rol: Men tepuvchimanmi yoki darvozabonmanmi?
-	let amIShooter = true
-	if (isMultiplayer) {
-		if (myRole === 'white') {
-			amIShooter = isWhiteShooting
-		} else {
-			amIShooter = !isWhiteShooting
-		}
-	} else {
-		// Lokal: har doim foydalanuvchi tepuvchi, darvozabon robot
-		amIShooter = true
+	// Shooter knight at (3, 3)
+	if (matrix[3] && matrix[3][3]) {
+		matrix[3][3].innerHTML = `<img class="${option[1]}-rook piece" src="/images/pieces/${option[1]}/knight.png" alt="Zarba">`
 	}
 
-	if (penaltyTurnIndicator) {
-		if (amIShooter) {
-			penaltyTurnIndicator.textContent = `Siz to'p tepuvchisiz! (${currentTurnTeam})`
-			penaltyTurnIndicator.style.color = '#15803d'
-		} else {
-			penaltyTurnIndicator.textContent = 'Siz darvozabonsiz! Darvozani himoya qiling 🧤'
-			penaltyTurnIndicator.style.color = '#b45309'
-		}
-	}
+	selectedItems = [4, 2]
 
-	if (penaltyActionStatus) {
-		penaltyActionStatus.textContent = amIShooter
-			? "Darvozaning 3 ta burchagidan birini (Chap, Markaz, O'ng) tanlang!"
-			: "Darvozaning qaysi burchagiga sakrashni tanlang (Chap, Markaz, O'ng)!"
+	const shootingTeamName = Order ? 'Qoralar' : 'Oqlar'
+	const turnBanner = document.getElementById('mp-turn-banner')
+	if (turnBanner) {
+		turnBanner.textContent = `⚽ Penalti: ${shootingTeamName} zarba bermoqda (${Gs}-zarba)`
+		turnBanner.className = 'mp-turn-banner mp-my-turn'
 	}
+	showToast(`⚽ Penaltilar seriyasi: ${shootingTeamName} to'p tepadi!`, 'info')
 
-	// 10 soniyalik Penalti taymerini boshlash
-	startPenaltyTimer(amIShooter)
+	setupPenaltyPitchRules()
 }
 
-function startPenaltyTimer(amIShooter) {
-	if (penaltyTimerInterval) clearInterval(penaltyTimerInterval)
-	penaltySeconds = 10
-	updatePenaltyTimerDisplay()
-
-	penaltyTimerInterval = setInterval(() => {
-		penaltySeconds--
-		if (penaltySeconds < 0) penaltySeconds = 0
-		updatePenaltyTimerDisplay()
-
-		if (penaltySeconds <= 0) {
-			clearInterval(penaltyTimerInterval)
-			// Agar foydalanuvchi hali tanlamagan bo'lsa -> Markaz (2) avtomatik tanlanadi
-			if (myPenaltyChoice === null) {
-				makePenaltyChoice(2, amIShooter)
-			}
-		}
-	}, 1000)
-}
-
-function updatePenaltyTimerDisplay() {
-	if (penaltyTimerCount) penaltyTimerCount.textContent = `${penaltySeconds}s`
-	if (penaltyTimerPill) {
-		if (penaltySeconds <= 3) {
-			penaltyTimerPill.classList.add('danger')
-		} else {
-			penaltyTimerPill.classList.remove('danger')
-		}
-	}
-}
-
-function makePenaltyChoice(zoneNum, amIShooter) {
-	if (myPenaltyChoice !== null) return
-	myPenaltyChoice = zoneNum
-
-	// Highlight selected zone
-	const zoneElem = document.getElementById(`goal-zone-${zoneNum}`)
-	if (zoneElem) zoneElem.classList.add('selected')
-
-	if (penaltyActionStatus) {
-		penaltyActionStatus.textContent = `Siz tanladingiz: ${zoneNum == 1 ? 'Chap' : zoneNum == 2 ? 'Markaz' : "O'ng"}. Raqib kutilmoqda... 🔒`
-	}
-
-	if (isMultiplayer && netConn && netConn.open) {
-		if (isHost) {
-			if (amIShooter) hostPenaltyState.shooterChoice = zoneNum
-			else hostPenaltyState.keeperChoice = zoneNum
-
-			if (hostPenaltyState.shooterChoice !== null && hostPenaltyState.keeperChoice !== null) {
-				const sChoice = hostPenaltyState.shooterChoice
-				const kChoice = hostPenaltyState.keeperChoice
-				const isGoal = sChoice !== kChoice
-				netEmit('penalty_round_result', { shooterChoice: sChoice, keeperChoice: kChoice, isGoal })
-				resolvePenaltyRound(sChoice, kChoice, isGoal)
-				hostPenaltyState = { shooterChoice: null, keeperChoice: null }
-			} else {
-				netEmit('penalty_opponent_locked', {})
-			}
-		} else {
-			netEmit('penalty_submit_choice', {
-				choiceType: amIShooter ? 'shooter' : 'keeper',
-				choice: zoneNum,
-			})
-		}
-	} else {
-		// Lokal rejim: darvozabon robot random tanlaydi (1, 2, 3)
-		const robotChoice = Math.floor(Math.random() * 3) + 1
-		const isGoal = zoneNum !== robotChoice
-
-		setTimeout(() => {
-			resolvePenaltyRound(zoneNum, robotChoice, isGoal)
-		}, 800)
-	}
-}
-
-function resolvePenaltyRound(shooterChoice, keeperChoice, isGoal) {
-	if (penaltyTimerInterval) clearInterval(penaltyTimerInterval)
-
-	// Animate goalkeeper dive
-	if (penaltyKeeperAnim) {
-		penaltyKeeperAnim.classList.add(`dive-${keeperChoice}`)
-	}
-
-	// Animate ball shoot
-	if (penaltyBallAnim) {
-		penaltyBallAnim.classList.add(`shoot-${shooterChoice}`)
-	}
-
-	const isWhiteShooting = penaltySubRound % 2 === 0
-	const shootingTeam = isWhiteShooting ? 'Oqlar' : 'Qoralar'
-
-	setTimeout(() => {
-		if (isGoal) {
-			showToast(`⚽ GOOOL! ${shootingTeam} darvozani aniq nishonga oldi!`, 'success')
-			if (isWhiteShooting) penaltyScores.white++
-			else penaltyScores.black++
-			if (isWhiteShooting) penaltyHistory.white.push(true)
-			else penaltyHistory.black.push(true)
-			if (penaltyBallAnim) penaltyBallAnim.classList.add('ball-goal-white')
-		} else {
-			showToast(`🧤 SEYV! Darvozabon to'pni mahorat bilan qaytardi!`, 'warning')
-			if (isWhiteShooting) penaltyHistory.white.push(false)
-			else penaltyHistory.black.push(false)
-		}
-
-		// Update dots UI
-		updatePenaltyDotsUI()
-
-		if (penaltyScoreWhiteDisplay) penaltyScoreWhiteDisplay.textContent = penaltyScores.white
-		if (penaltyScoreBlackDisplay) penaltyScoreBlackDisplay.textContent = penaltyScores.black
-
-		// 2 soniyadan keyin g'alaba shartini tekshirish yoki keyingi zarbaga o'tish
-		setTimeout(() => {
-			checkPenaltyWinnerOrNext()
-		}, 2200)
-	}, 600)
-}
-
-function updatePenaltyDotsUI() {
-	// White dots
-	penaltyHistory.white.forEach((result, idx) => {
-		const dot = document.getElementById(`pw-${idx + 1}`)
-		if (dot) dot.textContent = result ? '🟢' : '🔴'
-	})
-	// Black dots
-	penaltyHistory.black.forEach((result, idx) => {
-		const dot = document.getElementById(`pb-${idx + 1}`)
-		if (dot) dot.textContent = result ? '🟢' : '🔴'
-	})
-}
-
-function checkPenaltyWinnerOrNext() {
-	penaltySubRound++
-	const totalShotsTaken = penaltySubRound
-	const currentRoundNum = Math.floor(totalShotsTaken / 2)
-
-	// Futbol qoidalari bo'yicha:
-	// Har ikkala jamoa teng miqdorda tepgan holatlar (har tur oxiri):
-	if (totalShotsTaken % 2 === 0) {
-		// Dastlabki 3 ta tur tugagach (3 tadan tepildi):
-		if (currentRoundNum >= 3) {
-			if (penaltyScores.white !== penaltyScores.black) {
-				// G'olib aniq!
-				finishPenaltyShootout()
-				return
-			} else {
-				// 3 tadan keyin ham durrang bo'lsa -> Sudden Death (Oltin penalti)!
-				showToast('⚡ Oltin Penalti! Kimdir xato qilguncha davom etadi!', 'info')
-			}
-		}
-	} else {
-		// Agar 3-tur ichida matematik jihatdan yetib bo'lmaydigan bo'lsa:
-		// Masalan: 1-jamoa 3 tadan 2 ta urgan, 2-jamoa 2 tadan 0 ta urgan bo'lsa
-		const whiteShots = penaltyHistory.white.length
-		const blackShots = penaltyHistory.black.length
-		const whiteRemaining = Math.max(0, 3 - whiteShots)
-		const blackRemaining = Math.max(0, 3 - blackShots)
-
-		if (currentRoundNum < 3) {
-			if (penaltyScores.white > penaltyScores.black + blackRemaining) {
-				finishPenaltyShootout()
-				return
-			}
-			if (penaltyScores.black > penaltyScores.white + whiteRemaining) {
-				finishPenaltyShootout()
-				return
-			}
-		}
-	}
-
-	// Keyingi zarbaga o'tish
-	setupPenaltyRoundUI()
-}
-
-function finishPenaltyShootout() {
-	if (penaltyModal) penaltyModal.style.display = 'none'
-	showFinalWinnerModal(true)
-}
-
-function showFinalWinnerModal(isFromPenalty = false) {
-	const modal = document.getElementById('disconnect-modal')
-	const titleElem = document.getElementById('victory-title')
-	const msgElem = document.getElementById('disconnect-message')
-	const leftScoreElem = document.getElementById('winner-score-left')
-	const rightScoreElem = document.getElementById('winner-score-right')
-	const penaltyStatsElem = document.getElementById('penalty-final-stats')
-	const penaltyStatDisplay = document.getElementById('penalty-stat-display')
-
-	if (!modal) return
-
-	let winnerName = ''
-	if (isFromPenalty) {
-		winnerName = penaltyScores.white > penaltyScores.black ? 'Oqlar' : 'Qoralar'
-		if (titleElem) titleElem.textContent = `🏆 ${winnerName} G'alaba Qozondi!`
-		if (msgElem) msgElem.textContent = `Penaltilar seriyasida ${winnerName} jamoasi zafar quchdi!`
-		if (leftScoreElem) leftScoreElem.textContent = whiteScore
-		if (rightScoreElem) rightScoreElem.textContent = blackScore
-
-		if (penaltyStatsElem && penaltyStatDisplay) {
-			penaltyStatsElem.style.display = 'block'
-			penaltyStatDisplay.textContent = `${penaltyScores.white} : ${penaltyScores.black}`
-		}
-	} else {
-		winnerName = whiteScore > blackScore ? 'Oqlar' : 'Qoralar'
-		if (titleElem) titleElem.textContent = `🏆 ${winnerName} G'alaba Qozondi!`
-		if (msgElem) msgElem.textContent = `Asosiy o'yin natijasiga ko'ra ${winnerName} jamoasi g'olib bo'ldi!`
-		if (leftScoreElem) leftScoreElem.textContent = whiteScore
-		if (rightScoreElem) rightScoreElem.textContent = blackScore
-		if (penaltyStatsElem) penaltyStatsElem.style.display = 'none'
-	}
-
-	modal.style.display = 'flex'
-}
-
-// Attach penalty zone clicks
-for (let i = 1; i <= 3; i++) {
-	const zone = document.getElementById(`goal-zone-${i}`)
-	if (zone) {
-		zone.addEventListener('click', () => {
-			if (!isPenalty || myPenaltyChoice !== null) return
-			const isWhiteShooting = penaltySubRound % 2 === 0
-			let amIShooter = true
+function setupPenaltyPitchRules() {
+	// Ball click handler
+	const ballCell = matrix[2] && matrix[2][4] ? matrix[2][4] : null
+	const ballElem = ballCell ? ballCell.querySelector('.ball') : null
+	if (ballElem) {
+		ballElem.onclick = (e) => {
+			e.stopPropagation()
 			if (isMultiplayer) {
-				amIShooter = myRole === 'white' ? isWhiteShooting : !isWhiteShooting
+				const isMyTurnToShoot = (myRole === 'white' && !Order) || (myRole === 'black' && Order)
+				if (!isMyTurnToShoot) {
+					showToast("Hozir raqibingizning zarba berish navbati!", 'info')
+					return
+				}
 			}
-			makePenaltyChoice(i, amIShooter)
+
+			// Show target white dots in top goal (cells 3, 4, 5 of matrix[0])
+			for (let i = 3; i < 6; i++) {
+				if (matrix[0] && matrix[0][i] && matrix[0][i] !== 0) {
+					matrix[0][i].innerHTML =
+						"<div style='background-color: white;' class='white-dot dot-action'></div>"
+				}
+			}
+			Dots = true
+		}
+	}
+
+	// Top goal squad clicks for shooting
+	const topGoal = document.getElementById('top-goal')
+	if (topGoal) {
+		const squads = topGoal.querySelectorAll('.squad')
+		squads.forEach((sq, idx) => {
+			const col = idx + 3 // columns 3, 4, 5
+			sq.onclick = (e) => {
+				if (!isPenalty || !Dots) return
+				if (isMultiplayer) {
+					const isMyTurnToShoot = (myRole === 'white' && !Order) || (myRole === 'black' && Order)
+					if (!isMyTurnToShoot) {
+						showToast("Hozir raqibingizning zarba berish navbati!", 'info')
+						return
+					}
+				}
+
+				// Goalkeeper dives to random spot among 3, 4, 5
+				const randCol = [3, 4, 5][Math.floor(Math.random() * 3)]
+				executePenaltyShot(col, randCol, true)
+			}
 		})
 	}
 }
 
-if (penaltyBallAnim) {
-	penaltyBallAnim.addEventListener('click', () => {
-		if (!isPenalty || myPenaltyChoice !== null) return
-		showToast("Darvozaning 3 ta burchagidan birini bosing (Chap, Markaz, O'ng)!", 'info')
-	})
+function executePenaltyShot(targetCol, keeperCol, emit = true) {
+	let option
+	if (Order) option = ['white', 'black']
+	else option = ['black', 'white']
+
+	// Goalkeeper leaves keeper zone
+	const keeperZone = document.getElementById('keeper-zone')
+	const sqKeeper = keeperZone ? keeperZone.querySelector('.squad') : null
+	if (sqKeeper) sqKeeper.innerHTML = ''
+
+	clearAllDots()
+
+	// Move ball to targetCol in goal
+	if (matrix[2] && matrix[2][4]) {
+		matrix[2][4].innerHTML = ''
+	}
+	if (matrix[0] && matrix[0][targetCol] && matrix[0][targetCol] !== 0) {
+		matrix[0][targetCol].innerHTML = '<img src="/images/ball.jpg" alt="" class="ball">'
+	}
+
+	const isGoal = (keeperCol !== targetCol)
+
+	if (isGoal) {
+		// Goalkeeper dove to keeperCol
+		if (matrix[0] && matrix[0][keeperCol] && matrix[0][keeperCol] !== 0) {
+			matrix[0][keeperCol].innerHTML = `<img class="${option[0]}-rook rook" src="/images/pieces/${option[0]}/rook.png" alt="">`
+		}
+
+		// Goal banner display
+		const goalBanner = document.querySelector('.goall')
+		if (goalBanner) goalBanner.style.display = 'flex'
+
+		if (Order) {
+			blackScore++
+			if (scores[1]) scores[1].textContent = blackScore
+		} else {
+			whiteScore++
+			if (scores[0]) scores[0].textContent = whiteScore
+		}
+
+		showToast(`⚽ GOOOL! ${Order ? 'Qoralar' : 'Oqlar'} gol urdi!`, 'success')
+
+		setTimeout(() => {
+			if (goalBanner) goalBanner.style.display = 'none'
+			checkPenaltyWinner()
+		}, 3000)
+	} else {
+		// SEYV: Goalkeeper catches ball at targetCol
+		if (matrix[0] && matrix[0][targetCol] && matrix[0][targetCol] !== 0) {
+			matrix[0][targetCol].innerHTML = `<img class="${option[0]}-rook rook" src="/images/pieces/${option[0]}/rook.png" alt="">`
+		}
+		showToast(`🧤 SEYV! Darvozabon to'pni qaytardi!`, 'warning')
+
+		setTimeout(() => {
+			checkPenaltyWinner()
+		}, 3000)
+	}
+
+	if (emit && isMultiplayer) {
+		netEmit('penalty_pitch_shot', {
+			targetCol,
+			keeperCol
+		})
+	}
+}
+
+function checkPenaltyWinner() {
+	if (Gs > 0 && Gs % 2 === 0 && blackScore !== whiteScore) {
+		Winning()
+	} else {
+		changeOrder()
+		Penalty(true)
+	}
+}
+
+function Winning() {
+	document.body.style.padding = '0px'
+	const container = document.querySelector('.container')
+	if (container) container.style.display = 'none'
+
+	const container1 = document.querySelector('.container-1')
+	if (container1) {
+		container1.classList.add('show')
+		container1.style.display = 'flex'
+	}
+
+	const s1 = document.querySelectorAll('.score1')
+	if (s1 && s1.length >= 2) {
+		s1[0].textContent = whiteScore
+		s1[1].textContent = blackScore
+	}
+
+	const btnRes = document.querySelector('.btn-res')
+	if (btnRes) {
+		btnRes.onclick = () => {
+			if (isMultiplayer) {
+				netEmit('rematch_request', {})
+			}
+			location.reload()
+		}
+	}
 }
 
 // ---------------------------------------------------
@@ -1627,37 +1487,12 @@ function handleNetEvent(event, data) {
 		}
 		case 'penalty_mode_started': {
 			if (!isPenalty) {
-				startPenaltyShootout()
+				startPenaltyShootout(false)
 			}
 			break
 		}
-		case 'penalty_submit_choice': {
-			if (isHost) {
-				if (data.choiceType === 'shooter') {
-					hostPenaltyState.shooterChoice = data.choice
-				} else {
-					hostPenaltyState.keeperChoice = data.choice
-				}
-				if (hostPenaltyState.shooterChoice !== null && hostPenaltyState.keeperChoice !== null) {
-					const sChoice = hostPenaltyState.shooterChoice
-					const kChoice = hostPenaltyState.keeperChoice
-					const isGoal = sChoice !== kChoice
-					netEmit('penalty_round_result', { shooterChoice: sChoice, keeperChoice: kChoice, isGoal })
-					resolvePenaltyRound(sChoice, kChoice, isGoal)
-					hostPenaltyState = { shooterChoice: null, keeperChoice: null }
-				} else {
-					netEmit('penalty_opponent_locked', {})
-				}
-			}
-			break
-		}
-		case 'penalty_opponent_locked': {
-			oppLockedChoice = true
-			showToast("Raqib o'z tanlovini qildi va qulfladi 🔒", 'info')
-			break
-		}
-		case 'penalty_round_result': {
-			resolvePenaltyRound(data.shooterChoice, data.keeperChoice, data.isGoal)
+		case 'penalty_pitch_shot': {
+			executePenaltyShot(data.targetCol, data.keeperCol, false)
 			break
 		}
 		case 'rematch_request': {
