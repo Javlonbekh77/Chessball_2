@@ -2,7 +2,32 @@
 // CHESSBALL - ULTIMATE MULTIPLAYER & PENALTY ENGINE
 // ===================================================
 
-import { Peer } from 'peerjs'
+import { Peer as BundledPeer } from 'peerjs'
+
+function getPeerConstructor() {
+	if (typeof window !== 'undefined' && window.Peer) {
+		return window.Peer
+	}
+	return BundledPeer
+}
+
+const PEER_CONFIG = {
+	host: '0.peerjs.com',
+	port: 443,
+	path: '/',
+	secure: true,
+	debug: 1,
+	config: {
+		iceServers: [
+			{ urls: 'stun:stun.l.google.com:19302' },
+			{ urls: 'stun:stun1.l.google.com:19302' },
+			{ urls: 'stun:stun2.l.google.com:19302' },
+			{ urls: 'stun:stun3.l.google.com:19302' },
+			{ urls: 'stun:stun4.l.google.com:19302' },
+			{ urls: 'stun:stun.cloudflare.com:3478' }
+		]
+	}
+}
 
 const matrixContent = document.querySelector('.main-matrix')
 const squadsBoard = Array.from(matrixContent ? matrixContent.querySelectorAll('.squad') : [])
@@ -1503,26 +1528,46 @@ function handleNetEvent(event, data) {
 }
 
 // Create Room Action (Host - PeerJS)
-if (btnCreateRoom) {
-	btnCreateRoom.addEventListener('click', () => {
-		myTeamName = teamNameInput.value.trim() || 'Barsa'
-		isHost = true
-		myRole = 'white'
-		const code = generateRoomCode()
-		currentRoomCode = code
+function initHostRoom(forcedCode = null) {
+	myTeamName = (teamNameInput ? teamNameInput.value.trim() : '') || 'Barsa'
+	isHost = true
+	myRole = 'white'
 
-		btnCreateRoom.disabled = true
-		btnCreateRoom.textContent = 'Xona ochilmoqda...'
+	const code = forcedCode || generateRoomCode()
+	currentRoomCode = code
 
-		const peerId = 'cb-' + code
-		peer = new Peer(peerId)
+	if (createdRoomCode) createdRoomCode.textContent = currentRoomCode
+	if (createRoomInfo) createRoomInfo.style.display = 'flex'
+
+	const hostStatusMsg = document.getElementById('host-status-msg')
+	const hostSpinner = document.querySelector('#host-status .waiting-spinner')
+	if (hostStatusMsg) {
+		hostStatusMsg.textContent = 'Serverga ulanmoqda va xona tayyorlanmoqda...'
+		hostStatusMsg.style.color = '#475569'
+	}
+	if (hostSpinner) hostSpinner.style.display = 'inline-block'
+
+	if (peer) {
+		try {
+			peer.destroy()
+		} catch (e) {}
+		peer = null
+	}
+
+	const PeerClass = getPeerConstructor()
+	const peerId = 'cb-' + code
+
+	try {
+		peer = new PeerClass(peerId, PEER_CONFIG)
 
 		peer.on('open', id => {
-			console.log('[P2P] Xona yaratildi:', id)
-			btnCreateRoom.style.display = 'none'
-			if (createRoomInfo) createRoomInfo.style.display = 'flex'
+			console.log('[P2P] Xona ochildi:', id)
 			if (createdRoomCode) createdRoomCode.textContent = currentRoomCode
-			showToast(`Xona yaratildi (#${currentRoomCode})! Kodni do'stingizga yuboring.`, 'success')
+			if (hostStatusMsg) {
+				hostStatusMsg.textContent = `🟢 Xona faol (#${currentRoomCode})! Raqib (Qoralar) ulanishi kutilmoqda...`
+				hostStatusMsg.style.color = '#15803d'
+			}
+			showToast(`Xona (#${currentRoomCode}) tayyor! Kodni do'stingizga yuboring.`, 'success')
 		})
 
 		peer.on('connection', c => {
@@ -1530,32 +1575,46 @@ if (btnCreateRoom) {
 		})
 
 		peer.on('error', err => {
-			console.error('[P2P] Xona yaratishda xato:', err)
+			console.error('[P2P] Xona xatosi:', err)
 			if (err.type === 'unavailable-id') {
-				btnCreateRoom.disabled = false
-				btnCreateRoom.click()
+				// ID allaqachon mavjud bo'lsa yangi kod bilan xona ochamiz
+				initHostRoom()
 			} else {
+				if (hostStatusMsg) {
+					hostStatusMsg.textContent = "Serverga ulanishda xato. 'Yangi kod yaratish' tugmasini bosing."
+					hostStatusMsg.style.color = '#dc2626'
+				}
 				showToast('Ulanish xatosi: ' + (err.message || err.type), 'error')
-				btnCreateRoom.disabled = false
-				btnCreateRoom.textContent = '✨ Yangi xona yaratish (Oqlar)'
 			}
 		})
+	} catch (e) {
+		console.error('[P2P] Peer yaratishda istisno:', e)
+		if (hostStatusMsg) {
+			hostStatusMsg.textContent = "Kodni nusxalab do'stingizga yuboring."
+		}
+	}
+}
+
+if (btnCreateRoom) {
+	btnCreateRoom.addEventListener('click', () => {
+		initHostRoom()
 	})
 }
 
 // Join Room Action (Guest - PeerJS)
 if (btnJoinRoom) {
 	btnJoinRoom.addEventListener('click', () => {
-		const rawCode = joinCodeInput.value.trim()
+		const rawCode = joinCodeInput ? joinCodeInput.value.trim() : ''
 		const code = rawCode.replace(/^cb-/, '')
 		if (!code) {
 			if (joinStatus) {
 				joinStatus.textContent = 'Iltimos, xona kodini kiriting!'
 				joinStatus.style.display = 'block'
+				joinStatus.style.color = '#dc2626'
 			}
 			return
 		}
-		myTeamName = teamNameInput.value.trim() || 'Real Madrid'
+		myTeamName = (teamNameInput ? teamNameInput.value.trim() : '') || 'Real Madrid'
 		isHost = false
 		myRole = 'black'
 		currentRoomCode = code
@@ -1567,23 +1626,56 @@ if (btnJoinRoom) {
 		}
 		btnJoinRoom.disabled = true
 
-		peer = new Peer()
-		peer.on('open', () => {
-			const targetPeerId = 'cb-' + code
-			const conn = peer.connect(targetPeerId, { reliable: true })
-			setupConnection(conn)
-		})
+		if (peer) {
+			try {
+				peer.destroy()
+			} catch (e) {}
+			peer = null
+		}
 
-		peer.on('error', err => {
-			console.error('[P2P] Ulanish xatosi:', err)
+		const PeerClass = getPeerConstructor()
+		try {
+			peer = new PeerClass(PEER_CONFIG)
+			peer.on('open', () => {
+				const targetPeerId = 'cb-' + code
+				const conn = peer.connect(targetPeerId, { reliable: true })
+				setupConnection(conn)
+			})
+
+			peer.on('error', err => {
+				console.error('[P2P] Ulanish xatosi:', err)
+				btnJoinRoom.disabled = false
+				if (joinStatus) {
+					joinStatus.textContent = "Xona topilmadi yoki kod noto'g'ri!"
+					joinStatus.style.color = '#dc2626'
+					joinStatus.style.display = 'block'
+				}
+				showToast("Xona topilmadi yoki kod noto'g'ri!", 'error')
+			})
+		} catch (e) {
+			console.error('[P2P] Join xatosi:', e)
 			btnJoinRoom.disabled = false
 			if (joinStatus) {
-				joinStatus.textContent = "Xona topilmadi yoki kod noto'g'ri!"
+				joinStatus.textContent = 'Ulanishda xatolik yuz berdi!'
 				joinStatus.style.color = '#dc2626'
 				joinStatus.style.display = 'block'
 			}
-			showToast("Xona topilmadi yoki kod noto'g'ri!", 'error')
-		})
+			showToast("Ulanishda xato yuz berdi", 'error')
+		}
+	})
+}
+
+if (joinCodeInput) {
+	joinCodeInput.addEventListener('keydown', e => {
+		if (e.key === 'Enter') {
+			if (btnJoinRoom) btnJoinRoom.click()
+		}
+	})
+}
+
+if (teamNameInput) {
+	teamNameInput.addEventListener('input', () => {
+		myTeamName = teamNameInput.value.trim() || (isHost ? 'Barsa' : 'Real Madrid')
 	})
 }
 
@@ -1680,10 +1772,12 @@ if (rematchBtn) {
 }
 
 // Check URL query param for ?room=xxxxxx to auto-fill join input
+let isInvitedGuest = false
 try {
 	const urlParams = new URLSearchParams(window.location.search)
 	const roomFromUrl = urlParams.get('room')
 	if (roomFromUrl) {
+		isInvitedGuest = true
 		const cleanCode = roomFromUrl.replace(/^cb-/, '')
 		if (joinCodeInput) joinCodeInput.value = cleanCode
 		const joinTab = document.querySelector('.lobby-tab[data-tab="join"]')
@@ -1691,6 +1785,11 @@ try {
 		showToast(`Xona #${cleanCode} havolasi aniqlandi! "Xonaga kirish" tugmasini bosing.`, 'info')
 	}
 } catch (e) {}
+
+// Boshida xona kodi darhol yaratiladi va xona tayyorlanadi (agar taklif havolasi bilan kirmagan bo'lsa)
+if (!isInvitedGuest) {
+	initHostRoom()
+}
 
 // ---------------------------------------------------
 // BOOTSTRAP INITIALIZATION

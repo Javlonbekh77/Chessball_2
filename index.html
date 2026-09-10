@@ -12,6 +12,7 @@
 	<meta name="twitter:card" content="summary_large_image" />
 	<link rel="stylesheet" href="/style.css">
 	<link rel="shortcut icon" href="/images/favicon.png" type="image/x-icon">
+	<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 
 <body>
@@ -42,21 +43,23 @@
 
 			<!-- TAB 1: XONA YARATISH -->
 			<div id="tab-create" class="lobby-tab-content active">
-				<button type="button" id="btn-create-room" class="lobby-btn">
-					<span>✨ Yangi xona yaratish (Oqlar)</span>
-				</button>
-				<div id="create-room-info" style="display: none;" class="lobby-code-box">
+				<div id="create-room-info" class="lobby-code-box">
 					<div class="lobby-code-title">Do'stingizga yuborish uchun xona kodi:</div>
-					<div id="created-room-code" class="lobby-code-display">-----</div>
-					<button type="button" id="btn-copy-code" class="copy-btn">
-						<span id="copy-btn-text">📋 Koddan nusxa olish</span>
+					<div id="created-room-code" class="lobby-code-display">------</div>
+					<div style="display: flex; gap: 8px; width: 100%; margin-top: 4px;">
+						<button type="button" id="btn-copy-code" class="copy-btn" style="flex: 1; justify-content: center;">
+							<span id="copy-btn-text">📋 Kodni nusxalash</span>
+						</button>
+						<button type="button" id="btn-copy-link" class="copy-btn" style="flex: 1; justify-content: center; background: #2563eb; color: #ffffff; border-color: #1d4ed8;">
+							<span id="copy-link-text">🔗 Havolani nusxalash</span>
+						</button>
+					</div>
+					<button type="button" id="btn-create-room" class="lobby-btn" style="margin-top: 8px; padding: 9px 12px; font-size: 13px;">
+						<span>🔄 Yangi kod yaratish</span>
 					</button>
-					<button type="button" id="btn-copy-link" class="copy-btn" style="margin-top: 6px; background: #2563eb; color: #ffffff; border-color: #1d4ed8;">
-						<span id="copy-link-text">🔗 Do'stga havola nusxalash</span>
-					</button>
-					<div class="lobby-status-text" style="margin-top: 6px;">
+					<div id="host-status" class="lobby-status-text" style="margin-top: 6px;">
 						<span class="waiting-spinner"></span>
-						<span>Raqib ulanishi kutilmoqda...</span>
+						<span id="host-status-msg">Xona ochilmoqda va serverga ulanmoqda...</span>
 					</div>
 				</div>
 			</div>
