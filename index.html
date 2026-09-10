@@ -112,14 +112,54 @@
 	<div id="mp-toast" class="mp-toast"></div>
 
 	<!-- Rules modal -->
-	<div class="main-container">
-		<div class="madam">
-			<div class="sorov">
-				<div class="h4">Qanday o'ynashni bilasizmi?</div>
-				<div class="answer">
-					<span class="Yes">Ha</span>
-					<span class="No">Yo'q</span>
+	<div class="main-container" id="rules-modal">
+		<div class="rules-modal-card">
+			<div class="rules-modal-header">
+				<div class="rules-modal-title">
+					<span class="rules-icon">📜</span>
+					<span>Chessball Qoidalari</span>
 				</div>
+				<button type="button" class="rules-close-btn" id="rules-btn-close">✕</button>
+			</div>
+			<div class="rules-modal-body">
+				<div class="rules-section">
+					<div class="rules-sec-title">⚖️ Oqlar va Qoralar Tengligi</div>
+					<div class="rules-text">
+						O'yin 9x9 maydonda o'ynaladi. Har ikki jamoa teng 5 tadan o'yinchiga ega: 1 ta Darvozabon (To'ra), 3 ta Fil va 1 ta Ot. Qoidalar har ikki tomon uchun mutlaqo teng va adolatli!
+					</div>
+				</div>
+				<div class="rules-section">
+					<div class="rules-sec-title">🥅 Gol Urish Qoidalari</div>
+					<div class="rules-text">
+						<strong>• Oqlar:</strong> Yuqoridagi Qoralar darvozasiga (3 ta katak) to'g'ri (vertikal) va diagonal zarbalar orqali gol ura oladi.<br>
+						<strong>• Qoralar:</strong> Pastdagi Oqlar darvozasiga (3 ta katak) to'g'ri (vertikal) va diagonal zarbalar orqali gol ura oladi.<br>
+						<em>Eslatma:</em> To'p o'z jamoadoshingiz ustidan erkin uchib o'tadi, biroq raqib o'yinchisi yoki darvozabon yo'lni to'sib tursa, zarba to'xtatiladi.
+					</div>
+				</div>
+				<div class="rules-section">
+					<div class="rules-sec-title">♟️ Donalar Harakati</div>
+					<div class="rules-text">
+						<strong>• Darvozabon (To'ra):</strong> Faqat darvoza chizig'ida o'ngga va chapga 1 katak harakatlanadi.<br>
+						<strong>• Maydon o'yinchilari (Fil va Ot):</strong> O'z atrofidagi istalgan 1 ta bo'sh katakka (gorizontal, vertikal yoki diagonal) yura oladi.
+					</div>
+				</div>
+				<div class="rules-section">
+					<div class="rules-sec-title">🔄 Goldan Keyin Boshlang'ich Holat</div>
+					<div class="rules-text">
+						Har bir goldan keyin ikkala jamoaning barcha 5 ta o'yinchisi to'liq tarkibda boshlang'ich pozitsiyalariga qaytadi (ot darvozabon bo'lib qolmaydi). To'p markazga qo'yiladi va gol o'tkazgan jamoa to'pni o'yinga kiritadi.
+					</div>
+				</div>
+				<div class="rules-section">
+					<div class="rules-sec-title">⏱️ Vaqt va Penaltilar Seriyasi</div>
+					<div class="rules-text">
+						Har bir yurishga 15 soniya ajratiladi. Asosiy vaqt tugaganda hisob durrang bo'lsa, penaltilar seriyasi boshlanadi.
+					</div>
+				</div>
+			</div>
+			<div class="rules-modal-footer">
+				<button type="button" class="lobby-btn" id="rules-btn-got-it" style="width: 100%;">
+					Tushundim, o'yinga qaytish
+				</button>
 			</div>
 		</div>
 	</div>
@@ -306,22 +346,56 @@
 		</div>
 
 	</div>
-	<div class="container-1">
-		<div id="live" class="live">
-			<img id="king1" class="king " src="/images/pieces/white/king.png" alt="">
-			<span class="score1">0</span>
-			<h3>vs</h3>
-			<span class="score1">0</span>
-			<img id="king1" class="king" src="/images/pieces/black/king.png" alt="">
-		</div>
-		<div class="restart-sec">
-			<button class="button-82-pushable btn-res" role="button">
-				<span class="button-82-shadow"></span>
-				<span class="button-82-edge"></span>
-				<span class="button-82-front text">
-					Rematch
-				</span>
-			</button>
+	<!-- Redesigned Stadium Game Over Screen -->
+	<div class="container-1" id="game-over-screen">
+		<div class="game-over-card">
+			<div class="game-over-trophy" id="game-over-trophy">🏆</div>
+			<h2 class="game-over-title" id="game-over-title">O'YIN YAKUNLANDI</h2>
+			<div class="game-over-subtitle" id="game-over-subtitle">Oqlar g'alaba qozondi!</div>
+
+			<div class="game-over-scoreboard">
+				<div class="game-over-team team-white">
+					<img class="game-over-king" src="/images/pieces/white/king.png" alt="Oqlar">
+					<div class="game-over-team-name" id="game-over-white-name">Oqlar</div>
+				</div>
+				<div class="game-over-score-wrap">
+					<span class="score1" id="game-over-white-score">0</span>
+					<span class="game-over-colon">:</span>
+					<span class="score1" id="game-over-black-score">0</span>
+				</div>
+				<div class="game-over-team team-black">
+					<img class="game-over-king" src="/images/pieces/black/king.png" alt="Qoralar">
+					<div class="game-over-team-name" id="game-over-black-name">Qoralar</div>
+				</div>
+			</div>
+
+			<div class="game-over-extra-badge" id="game-over-extra-badge" style="display: none;">
+				⚽ Penaltilar seriyasi: <span id="game-over-penalty-score">3 : 2</span>
+			</div>
+
+			<div class="game-over-stats-grid">
+				<div class="game-over-stat-box">
+					<span class="stat-label">Rejim</span>
+					<span class="stat-value" id="game-over-mode-text">Online 1v1</span>
+				</div>
+				<div class="game-over-stat-box">
+					<span class="stat-label">Jami gollar</span>
+					<span class="stat-value" id="game-over-total-goals">0</span>
+				</div>
+			</div>
+
+			<div class="game-over-actions">
+				<button class="button-82-pushable btn-res" id="btn-rematch" role="button">
+					<span class="button-82-shadow"></span>
+					<span class="button-82-edge"></span>
+					<span class="button-82-front text">
+						🔄 Qayta o'ynash (Rematch)
+					</span>
+				</button>
+				<button type="button" class="lobby-btn btn-secondary-go" id="btn-game-over-lobby">
+					🏠 Lobbyga qaytish
+				</button>
+			</div>
 		</div>
 	</div>
 

@@ -4,8 +4,8 @@
 
 const matrixContent = document.querySelector('.main-matrix')
 const squadsBoard = Array.from(matrixContent ? matrixContent.querySelectorAll('.squad') : [])
-const topGoalSquads = Array.from(document.querySelectorAll('.goal-keeping-zone-1.top-goal .squad, .goal-keeping-zone-1:first-of-type .squad'))
-const bottomGoalSquads = Array.from(document.querySelectorAll('.goal-keeping-zone-1.bottom-goal .squad, .goal-keeping-zone-1:last-of-type .squad'))
+const topGoalSquads = Array.from(document.querySelectorAll('#top-goal .squad'))
+const bottomGoalSquads = Array.from(document.querySelectorAll('#bottom-goal .squad'))
 const squads = document.querySelectorAll('.squad')
 
 let matrix = [[], [], [], [], [], [], [], [], [], [], []]
@@ -400,6 +400,7 @@ if (startBtnElem) {
 
 function triggerStartGame() {
 	yurish = true
+	Order = false // Oqlar har doim birinchi yuradi
 	cloneMatrix()
 	removeOldRules()
 	currentRules()
@@ -414,7 +415,7 @@ function triggerStartGame() {
 		startBtnElem.style.background = '#334155'
 	}
 
-	showToast("⚽ O'yin boshlandi! Oqlar birinchi yuradi.", 'success')
+	showToast("⚽ O'yin boshlandi! Birinchi yurish: Oqlar.", 'success')
 }
 
 // ---------------------------------------------------
@@ -528,19 +529,29 @@ function clearMatrix() {
 }
 
 function buildMatrix() {
+	// Darvozabonlar (To'ra) har doim o'z darvoza chizig'ida
 	matrix[1][4].innerHTML =
 		'<img class="black-pieces black-rook black rook" src="/images/pieces/black/rook.png" alt="">'
 	matrix[9][4].innerHTML =
 		'<img class="white-pieces whitee rook" src="/images/pieces/white/rook.png" alt="">'
 
-	Pieces.black.bishop.forEach(item => {
+	// Qoralar fillari (aniq 3 ta)
+	const blackBishops = (Pieces.black.bishop && Pieces.black.bishop.length === 3)
+		? Pieces.black.bishop
+		: [[4, 0], [4, 1], [4, 2]]
+	blackBishops.forEach(item => {
 		let y = item[0], x = item[1]
 		if (matrix[y] && matrix[y][x]) {
 			matrix[y][x].innerHTML =
 				'<img class="black-pieces piece black bishop" src="/images/pieces/black/bishop.png" alt="">'
 		}
 	})
-	Pieces.white.bishop.forEach(item => {
+
+	// Oqlar fillari (aniq 3 ta)
+	const whiteBishops = (Pieces.white.bishop && Pieces.white.bishop.length === 3)
+		? Pieces.white.bishop
+		: [[6, 0], [6, 1], [6, 2]]
+	whiteBishops.forEach(item => {
 		let y = item[0], x = item[1]
 		if (matrix[y] && matrix[y][x]) {
 			matrix[y][x].innerHTML =
@@ -548,63 +559,66 @@ function buildMatrix() {
 		}
 	})
 
-	if (Pieces.black.knight && Pieces.black.knight.length === 2) {
-		let y = Pieces.black.knight[0], x = Pieces.black.knight[1]
-		if (matrix[y] && matrix[y][x]) {
-			matrix[y][x].innerHTML =
-				'<img class="black-pieces piece black" src="/images/pieces/black/knight.png" alt="">'
-		}
+	// Qoralar oti (1 ta) - darvozabon joyida bo'lmasligi kerak
+	let bKnight = Pieces.black.knight
+	if (!bKnight || bKnight.length !== 2 || (bKnight[0] === 1 && bKnight[1] === 4)) {
+		bKnight = [5, 5]
 	}
-	if (Pieces.white.knight && Pieces.white.knight.length === 2) {
-		let y = Pieces.white.knight[0], x = Pieces.white.knight[1]
-		if (matrix[y] && matrix[y][x]) {
-			matrix[y][x].innerHTML =
-				'<img class="white-pieces piece whitee" src="/images/pieces/white/knight.png" alt="">'
-		}
+	if (matrix[bKnight[0]] && matrix[bKnight[0]][bKnight[1]]) {
+		matrix[bKnight[0]][bKnight[1]].innerHTML =
+			'<img class="black-pieces piece black" src="/images/pieces/black/knight.png" alt="">'
 	}
 
+	// Oqlar oti (1 ta) - darvozabon joyida bo'lmasligi kerak
+	let wKnight = Pieces.white.knight
+	if (!wKnight || wKnight.length !== 2 || (wKnight[0] === 9 && wKnight[1] === 4)) {
+		wKnight = [5, 3]
+	}
+	if (matrix[wKnight[0]] && matrix[wKnight[0]][wKnight[1]]) {
+		matrix[wKnight[0]][wKnight[1]].innerHTML =
+			'<img class="white-pieces piece whitee" src="/images/pieces/white/knight.png" alt="">'
+	}
+
+	// To'p markazda
 	if (matrix[5] && matrix[5][4]) {
 		matrix[5][4].innerHTML = '<img src="/images/ball.jpg" alt="" class="ball">'
 	}
 }
 
 function cloneMatrix() {
-	let row = 0
-	for (let i = 1; i <= 5; i++) {
+	let bBishopList = []
+	let wBishopList = []
+	let bKnight = null
+	let wKnight = null
+
+	for (let i = 1; i <= 9; i++) {
 		matrix[i].forEach((item, index) => {
-			if (
-				item.childNodes[0] &&
-				item.childNodes[0].classList.contains('black-pieces') &&
-				item.childNodes[0].classList.contains('bishop')
-			) {
-				Pieces.black.bishop[row] = [i, index]
-				row++
-			} else if (
-				item.childNodes[0] &&
-				item.childNodes[0].classList.contains('black-pieces')
-			) {
-				Pieces.black.knight = [i, index]
+			const child = item.childNodes[0]
+			if (!child) return
+
+			// Darvozabon (To'ra) o'yinchilar qatoriga kirmaydi!
+			if (child.classList.contains('rook')) return
+
+			if (child.classList.contains('black-pieces') || child.classList.contains('black')) {
+				if (child.classList.contains('bishop')) {
+					bBishopList.push([i, index])
+				} else {
+					bKnight = [i, index]
+				}
+			} else if (child.classList.contains('white-pieces') || child.classList.contains('whitee')) {
+				if (child.classList.contains('bishop')) {
+					wBishopList.push([i, index])
+				} else {
+					wKnight = [i, index]
+				}
 			}
 		})
 	}
-	row = 0
-	for (let i = 5; i <= 9; i++) {
-		matrix[i].forEach((item, index) => {
-			if (
-				item.childNodes[0] &&
-				item.childNodes[0].classList.contains('white-pieces') &&
-				item.childNodes[0].classList.contains('bishop')
-			) {
-				Pieces.white.bishop[row] = [i, index]
-				row++
-			} else if (
-				item.childNodes[0] &&
-				item.childNodes[0].classList.contains('white-pieces')
-			) {
-				Pieces.white.knight = [i, index]
-			}
-		})
-	}
+
+	Pieces.black.bishop = bBishopList.length === 3 ? bBishopList : [[4, 0], [4, 1], [4, 2]]
+	Pieces.white.bishop = wBishopList.length === 3 ? wBishopList : [[6, 0], [6, 1], [6, 2]]
+	Pieces.black.knight = (bKnight && !(bKnight[0] === 1 && bKnight[1] === 4)) ? bKnight : [5, 5]
+	Pieces.white.knight = (wKnight && !(wKnight[0] === 9 && wKnight[1] === 4)) ? wKnight : [5, 3]
 }
 
 // ---------------------------------------------------
@@ -776,143 +790,201 @@ function checkAround(x, y) {
 // BALL MOVEMENT & GOAL RESTRICTIONS
 // ---------------------------------------------------
 function Ball(x, y) {
-	let option
-	if (Order) option = 'black'
-	else option = 'whitee'
+	let option = Order ? 'black' : 'whitee'
 	Dots = true
 	selectedItems = [x, y]
-	let column = x - 1
-	let row = y + 1
 
 	// Gorizontal chapga
+	let column = x - 1
 	while (
 		column >= 0 &&
-		(matrix[y][column].innerHTML == '' ||
-			(matrix[y][column] &&
-				matrix[y][column].childNodes[0].classList.contains(`${option}`)))
+		(matrix[y][column].innerHTML === '' ||
+			(matrix[y][column].childNodes[0] &&
+				matrix[y][column].childNodes[0].classList.contains(option)))
 	) {
-		if (matrix[y][column].innerHTML == '')
+		if (matrix[y][column].innerHTML === '') {
 			matrix[y][column].innerHTML = "<div class='dot-action'></div>"
+		}
 		column--
 	}
+
 	// Gorizontal o'ngga
 	column = x + 1
 	while (
 		column <= 8 &&
-		(matrix[y][column].innerHTML == '' ||
-			(matrix[y][column] &&
-				matrix[y][column].childNodes[0].classList.contains(`${option}`)))
+		(matrix[y][column].innerHTML === '' ||
+			(matrix[y][column].childNodes[0] &&
+				matrix[y][column].childNodes[0].classList.contains(option)))
 	) {
-		if (matrix[y][column].innerHTML == '')
+		if (matrix[y][column].innerHTML === '') {
 			matrix[y][column].innerHTML = "<div class='dot-action'></div>"
+		}
 		column++
 	}
 
-	// Pastga qarab to'p tepish (row 1 -> 9 -> 10)
+	// Vertikal pastga qarab zarba (row y+1 -> 9 -> 10)
+	let rDown = y + 1
 	while (
-		row <= 10 &&
-		matrix[row] &&
-		matrix[row][x] !== undefined &&
-		(matrix[row][x] === 0 ||
-			matrix[row][x].innerHTML == '' ||
-			(matrix[row][x] &&
-				matrix[row][x].childNodes[0] &&
-				matrix[row][x].childNodes[0].classList.contains(`${option}`)))
+		rDown <= 10 &&
+		matrix[rDown] &&
+		matrix[rDown][x] !== undefined &&
+		(matrix[rDown][x] === 0 ||
+			matrix[rDown][x].innerHTML === '' ||
+			(matrix[rDown][x] &&
+				matrix[rDown][x].childNodes[0] &&
+				matrix[rDown][x].childNodes[0].classList.contains(option)))
 	) {
-		if (matrix[row][x] && matrix[row][x] !== 0 && matrix[row][x].innerHTML == '') {
-			if (row == 10) {
+		if (matrix[rDown][x] && matrix[rDown][x] !== 0 && matrix[rDown][x].innerHTML === '') {
+			if (rDown === 10) {
 				// 10-qator: PASTKI DARVOZA (Oqlarning darvozasi).
 				// Bunga FAQAT QORALAR (Order === true) gol ura oladi!
-				// Oqlar o'z darvozasiga to'p yo'naltira olmaydi!
-				if (Order && y >= 5 && x >= 3 && x <= 5) {
-					matrix[row][x].innerHTML =
+				if (Order && x >= 3 && x <= 5) {
+					matrix[rDown][x].innerHTML =
 						"<div style='background-color: white;' class='white-dot dot-action'></div>"
 				}
 			} else {
-				matrix[row][x].innerHTML = "<div class='dot-action'></div>"
+				matrix[rDown][x].innerHTML = "<div class='dot-action'></div>"
 			}
 		}
-		row++
+		rDown++
 	}
 
-	// Tepaga qarab to'p tepish (row 9 -> 1 -> 0)
-	row = y - 1
+	// Vertikal tepaga qarab zarba (row y-1 -> 1 -> 0)
+	let rUp = y - 1
 	while (
-		row >= 0 &&
-		matrix[row] &&
-		matrix[row][x] !== undefined &&
-		(matrix[row][x] === 0 ||
-			matrix[row][x].innerHTML == '' ||
-			(matrix[row][x] &&
-				matrix[row][x].childNodes[0] &&
-				matrix[row][x].childNodes[0].classList.contains(`${option}`)))
+		rUp >= 0 &&
+		matrix[rUp] &&
+		matrix[rUp][x] !== undefined &&
+		(matrix[rUp][x] === 0 ||
+			matrix[rUp][x].innerHTML === '' ||
+			(matrix[rUp][x] &&
+				matrix[rUp][x].childNodes[0] &&
+				matrix[rUp][x].childNodes[0].classList.contains(option)))
 	) {
-		if (matrix[row][x] && matrix[row][x] !== 0 && matrix[row][x].innerHTML == '') {
-			if (row == 0) {
+		if (matrix[rUp][x] && matrix[rUp][x] !== 0 && matrix[rUp][x].innerHTML === '') {
+			if (rUp === 0) {
 				// 0-qator: YUQORIGI DARVOZA (Qoralarning darvozasi).
 				// Bunga FAQAT OQLAR (!Order) gol ura oladi!
-				// Qoralar o'z darvozasiga to'p yo'naltira olmaydi!
-				if (!Order && y <= 5 && x >= 3 && x <= 5) {
-					matrix[row][x].innerHTML =
+				if (!Order && x >= 3 && x <= 5) {
+					matrix[rUp][x].innerHTML =
 						"<div style='background-color: white;' class='white-dot dot-action'></div>"
 				}
 			} else {
-				matrix[row][x].innerHTML = "<div class='dot-action'></div>"
+				matrix[rUp][x].innerHTML = "<div class='dot-action'></div>"
 			}
 		}
-		row--
+		rUp--
 	}
 
-	// Diagonal zarbalar (faqat raqib darvozasiga gol kiritish mumkin, o'z darvozasiga emas)
-	for (let i = 0; i < 4; i++) {
-		let items = mass[i]
-		if (items[0] == 0) column = x - 1
-		else column = x + 1
-		if (items[1] == 0) row = y - 1
-		else row = y + 1
-		while (
-			0 <= column &&
-			column <= 8 &&
-			1 <= row &&
-			row <= 9 &&
-			matrix[row] &&
-			matrix[row][column] &&
-			(matrix[row][column].innerHTML == '' ||
-				matrix[row][column].childNodes[0].classList.contains(`${option}`))
-		) {
-			if (matrix[row][column].innerHTML == '') {
-				// Pastdagi darvozaga diagonal zarba - FAQAT QORALAR uchun
-				if (row == 9 && column >= 3 && column <= 5 && Order && y >= 5) {
-					if (matrix[10] && matrix[10][column] && matrix[10][column] !== 0 && matrix[10][column].innerHTML == '') {
-						matrix[10][column].innerHTML =
-							"<div style='background-color: white;' class='white-dot dot-action'></div>"
-					}
-				}
-				// Tepdagi darvozaga diagonal zarba - FAQAT OQLAR uchun
-				if (row == 1 && column >= 3 && column <= 5 && !Order && y <= 5) {
-					if (matrix[0] && matrix[0][column] && matrix[0][column] !== 0 && matrix[0][column].innerHTML == '') {
-						matrix[0][column].innerHTML =
-							"<div style='background-color: white;' class='white-dot dot-action'></div>"
-					}
-				}
-				matrix[row][column].innerHTML = "<div class='dot-action'></div>"
+	// Diagonal zarbalar (4 ta yo'nalish)
+	const directions = [
+		[-1, -1], // yuqori-chap
+		[1, -1],  // yuqori-o'ng
+		[-1, 1],  // pastki-chap
+		[1, 1]    // pastki-o'ng
+	]
+
+	directions.forEach(([dx, dy]) => {
+		// Darvoza ostonasidan to'g'ridan-to'g'ri diagonal zarba
+		const directRow = y + dy
+		const directCol = x + dx
+		if (!Order && directRow === 0 && directCol >= 3 && directCol <= 5) {
+			if (matrix[0] && matrix[0][directCol] && matrix[0][directCol] !== 0 && matrix[0][directCol].innerHTML === '') {
+				matrix[0][directCol].innerHTML =
+					"<div style='background-color: white;' class='white-dot dot-action'></div>"
 			}
-			if (items[0] == 0) column--
-			else column++
-			if (items[1] == 0) row--
-			else row++
 		}
-	}
+		if (Order && directRow === 10 && directCol >= 3 && directCol <= 5) {
+			if (matrix[10] && matrix[10][directCol] && matrix[10][directCol] !== 0 && matrix[10][directCol].innerHTML === '') {
+				matrix[10][directCol].innerHTML =
+					"<div style='background-color: white;' class='white-dot dot-action'></div>"
+			}
+		}
+
+		let curCol = x + dx
+		let curRow = y + dy
+
+		while (
+			curCol >= 0 &&
+			curCol <= 8 &&
+			curRow >= 1 &&
+			curRow <= 9 &&
+			matrix[curRow] &&
+			matrix[curRow][curCol]
+		) {
+			const cell = matrix[curRow][curCol]
+			const hasChild = cell.childNodes && cell.childNodes.length > 0
+
+			// Bo'sh katak
+			if (cell.innerHTML === '') {
+				cell.innerHTML = "<div class='dot-action'></div>"
+
+				// Agar keyingi qadam darvoza ichiga kirsa
+				const nextR = curRow + dy
+				const nextC = curCol + dx
+
+				// Oqlar yuqoridagi Qoralar darvozasiga (0-qator, 3..5 ustunlar)
+				if (!Order && nextR === 0 && nextC >= 3 && nextC <= 5) {
+					if (matrix[0] && matrix[0][nextC] && matrix[0][nextC] !== 0 && matrix[0][nextC].innerHTML === '') {
+						matrix[0][nextC].innerHTML =
+							"<div style='background-color: white;' class='white-dot dot-action'></div>"
+					}
+				}
+
+				// Qoralar pastdagi Oqlar darvozasiga (10-qator, 3..5 ustunlar)
+				if (Order && nextR === 10 && nextC >= 3 && nextC <= 5) {
+					if (matrix[10] && matrix[10][nextC] && matrix[10][nextC] !== 0 && matrix[10][nextC].innerHTML === '') {
+						matrix[10][nextC].innerHTML =
+							"<div style='background-color: white;' class='white-dot dot-action'></div>"
+					}
+				}
+			} else if (hasChild && cell.childNodes[0].classList && cell.childNodes[0].classList.contains(option)) {
+				// Jamoadosh dona orqali to'p o'tadi
+				const nextR = curRow + dy
+				const nextC = curCol + dx
+				if (!Order && nextR === 0 && nextC >= 3 && nextC <= 5) {
+					if (matrix[0] && matrix[0][nextC] && matrix[0][nextC] !== 0 && matrix[0][nextC].innerHTML === '') {
+						matrix[0][nextC].innerHTML =
+							"<div style='background-color: white;' class='white-dot dot-action'></div>"
+					}
+				}
+				if (Order && nextR === 10 && nextC >= 3 && nextC <= 5) {
+					if (matrix[10] && matrix[10][nextC] && matrix[10][nextC] !== 0 && matrix[10][nextC].innerHTML === '') {
+						matrix[10][nextC].innerHTML =
+							"<div style='background-color: white;' class='white-dot dot-action'></div>"
+					}
+				}
+			} else {
+				// Raqib donasi yoki boshqa to'siq to'pni to'sadi
+				break
+			}
+
+			curCol += dx
+			curRow += dy
+		}
+	})
 }
 
 // ---------------------------------------------------
 // REPLACE & MOVE SYNCHRONIZATION
 // ---------------------------------------------------
+function isCurrentPlayerTurn() {
+	if (!yurish) return false
+	if (!isMultiplayer) return true
+	const isWhiteTurn = Order === false
+	return (myRole === 'white' && isWhiteTurn) || (myRole === 'black' && !isWhiteTurn)
+}
+
 function Replace(emitSocket = true) {
 	let x1 = selectedItems[0],
 		y1 = selectedItems[1],
 		x2 = moveItems[0],
 		y2 = moveItems[1]
+
+	if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) {
+		clearAllDots()
+		return
+	}
 
 	if (matrix[y1] && matrix[y1][x1] && matrix[y2] && matrix[y2][x2]) {
 		matrix[y2][x2].innerHTML = matrix[y1][x1].innerHTML
@@ -921,17 +993,11 @@ function Replace(emitSocket = true) {
 	clearAllDots()
 
 	if (emitSocket && isMultiplayer) {
-		if (!yurish) {
-			netEmit('prep_move', {
-				from: [x1, y1],
-				to: [x2, y2],
-			})
-		} else {
-			netEmit('game_move', {
-				from: [x1, y1],
-				to: [x2, y2],
-			})
-		}
+		netEmit('game_move', {
+			from: [x1, y1],
+			to: [x2, y2],
+			nextOrder: !Order,
+		})
 	}
 
 	if (yurish) {
@@ -980,54 +1046,92 @@ function currentRules() {
 	removeCurrentRules()
 	squadsBoard.forEach((item, index) => {
 		const handler = () => {
+			if (!yurish) return
+
 			if (item.childNodes[0]) {
 				if (item.childNodes[0].classList.contains('dot-action')) {
+					// STRICT TURN CHECK ON MOVING TO TARGET CELL
+					if (!isCurrentPlayerTurn()) {
+						clearAllDots()
+						showToast("Hozir sizning navbatingiz emas! Raqib yurishini kuting.", 'warning')
+						return
+					}
 					moveItems = [index % 9, Math.floor(index / 9) + 1]
 					Replace(true)
-				} else if (
-					item.childNodes[0].classList.contains('ball') &&
-					checkAround(index % 9, Math.floor(index / 9) + 1)
-				) {
-					if (isMultiplayer) {
-						if (myRole === 'white' && Order !== false) return
-						if (myRole === 'black' && Order !== true) return
+				} else if (item.childNodes[0].classList.contains('ball')) {
+					// STRICT TURN CHECK ON BALL INTERACTION
+					if (!isCurrentPlayerTurn()) {
+						showToast("Hozir raqibingiz navbati! To'pni faqat o'z navbatingizda tepa olasiz.", 'warning')
+						return
+					}
+					if (!checkAround(index % 9, Math.floor(index / 9) + 1)) {
+						showToast("To'pni tepish uchun uning yonida sizning donangiz bo'lishi kerak!", 'warning')
+						return
 					}
 					clearAllDots()
 					Ball(index % 9, Math.floor(index / 9) + 1)
-				} else if (
-					item.childNodes[0].classList.contains('rook') &&
-					Dots == false
-				) {
+				} else if (item.childNodes[0].classList.contains('rook')) {
+					// STRICT TURN CHECK ON ROOK (KEEPER)
+					if (!isCurrentPlayerTurn()) {
+						showToast("Hozir raqibingiz navbati! Iltimos kuting.", 'warning')
+						return
+					}
+					const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
+					const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
+
 					if (isMultiplayer) {
-						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
-						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
-						if (myRole === 'white' && (!isWhite || Order !== false)) return
-						if (myRole === 'black' && (!isBlack || Order !== true)) return
+						if (myRole === 'white' && !isWhite) {
+							showToast("Siz Oqlar jamoasisiz! Raqib darvozabonini yura olmaysiz.", 'warning')
+							return
+						}
+						if (myRole === 'black' && !isBlack) {
+							showToast("Siz Qoralar jamoasisiz! Raqib darvozabonini yura olmaysiz.", 'warning')
+							return
+						}
 					} else {
-						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
-						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
-						if (Order === false && !isWhite) return
-						if (Order === true && !isBlack) return
+						if (Order === false && !isWhite) {
+							showToast("Hozir Oqlarning navbati!", 'warning')
+							return
+						}
+						if (Order === true && !isBlack) {
+							showToast("Hozir Qoralarning navbati!", 'warning')
+							return
+						}
 					}
 
+					clearAllDots()
 					selectedItems = [index % 9, Math.floor(index / 9) + 1]
 					showDots(Math.floor(index / 9) + 1, index % 9, 'rook')
-				} else if (
-					item.childNodes[0].classList.contains('piece') &&
-					Dots == false
-				) {
+				} else if (item.childNodes[0].classList.contains('piece')) {
+					// STRICT TURN CHECK ON FIELD PIECE (BISHOP/KNIGHT)
+					if (!isCurrentPlayerTurn()) {
+						showToast("Hozir raqibingiz navbati! Iltimos kuting.", 'warning')
+						return
+					}
+					const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
+					const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
+
 					if (isMultiplayer) {
-						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
-						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
-						if (myRole === 'white' && (!isWhite || Order !== false)) return
-						if (myRole === 'black' && (!isBlack || Order !== true)) return
+						if (myRole === 'white' && !isWhite) {
+							showToast("Siz Oqlar jamoasisiz! Raqib donasini yura olmaysiz.", 'warning')
+							return
+						}
+						if (myRole === 'black' && !isBlack) {
+							showToast("Siz Qoralar jamoasisiz! Raqib donasini yura olmaysiz.", 'warning')
+							return
+						}
 					} else {
-						const isWhite = item.childNodes[0].classList.contains('white-pieces') || item.childNodes[0].classList.contains('whitee')
-						const isBlack = item.childNodes[0].classList.contains('black-pieces') || item.childNodes[0].classList.contains('black')
-						if (Order === false && !isWhite) return
-						if (Order === true && !isBlack) return
+						if (Order === false && !isWhite) {
+							showToast("Hozir Oqlarning navbati!", 'warning')
+							return
+						}
+						if (Order === true && !isBlack) {
+							showToast("Hozir Qoralarning navbati!", 'warning')
+							return
+						}
 					}
 
+					clearAllDots()
 					// HAMMA DONALAR (FIL VA OT) BIR XIL: FAQAT 1 TA KATAK ATROFIDA YURADI!
 					selectedItems = [index % 9, Math.floor(index / 9) + 1]
 					Piece(index % 9, Math.floor(index / 9) + 1)
@@ -1048,6 +1152,15 @@ function currentRules() {
 // GOAL SCORING & CELEBRATION
 // ---------------------------------------------------
 const scores = document.querySelectorAll('.score')
+
+function resetToKickoff() {
+	clearMatrix()
+	Pieces.white.bishop = [[6, 0], [6, 1], [6, 2]]
+	Pieces.white.knight = [5, 3]
+	Pieces.black.bishop = [[4, 0], [4, 1], [4, 2]]
+	Pieces.black.knight = [5, 5]
+	buildMatrix()
+}
 
 function executeGoal(from, to, emit = true) {
 	stopTurnTimer()
@@ -1088,8 +1201,7 @@ function executeGoal(from, to, emit = true) {
 			if (scores[0]) scores[0].textContent = whiteScore
 		}
 		if (!isPenalty) {
-			clearMatrix()
-			buildMatrix()
+			resetToKickoff()
 		}
 		changeOrder()
 	}, 2000)
@@ -1361,14 +1473,63 @@ function checkPenaltyWinner() {
 
 function Winning() {
 	document.body.style.padding = '0px'
+	stopTurnTimer()
+	if (timerInterval) clearInterval(timerInterval)
+
 	const container = document.querySelector('.container')
 	if (container) container.style.display = 'none'
 
-	const container1 = document.querySelector('.container-1')
+	const container1 = document.getElementById('game-over-screen') || document.querySelector('.container-1')
 	if (container1) {
 		container1.classList.add('show')
 		container1.style.display = 'flex'
 	}
+
+	let winner = 'draw'
+	if (whiteScore > blackScore) winner = 'white'
+	else if (blackScore > whiteScore) winner = 'black'
+
+	const trophyElem = document.getElementById('game-over-trophy')
+	const titleElem = document.getElementById('game-over-title')
+	const subtitleElem = document.getElementById('game-over-subtitle')
+
+	if (trophyElem) {
+		trophyElem.textContent = winner === 'draw' ? '🤝' : '🏆'
+	}
+
+	if (titleElem) {
+		titleElem.textContent = winner === 'draw' ? "DURRANG!" : "G'ALABA!"
+	}
+
+	if (subtitleElem) {
+		if (isMultiplayer) {
+			if (winner === 'draw') {
+				subtitleElem.textContent = "Jangovar durrang qayd etildi!"
+			} else if (winner === myRole) {
+				subtitleElem.textContent = "Tabriklaymiz! Siz g'olib bo'ldingiz! 🥇"
+			} else {
+				subtitleElem.textContent = "Afsus, bu safar raqibingiz g'olib bo'ldi."
+			}
+		} else {
+			if (winner === 'draw') {
+				subtitleElem.textContent = "Lokal o'yin durrang bilan yakunlandi!"
+			} else if (winner === 'white') {
+				subtitleElem.textContent = `${whiteTeamName || "Oqlar"} jamoasi g'alaba qozondi!`
+			} else {
+				subtitleElem.textContent = `${blackTeamName || "Qoralar"} jamoasi g'alaba qozondi!`
+			}
+		}
+	}
+
+	const whiteScoreElem = document.getElementById('game-over-white-score')
+	const blackScoreElem = document.getElementById('game-over-black-score')
+	const whiteNameElem = document.getElementById('game-over-white-name')
+	const blackNameElem = document.getElementById('game-over-black-name')
+
+	if (whiteScoreElem) whiteScoreElem.textContent = whiteScore
+	if (blackScoreElem) blackScoreElem.textContent = blackScore
+	if (whiteNameElem) whiteNameElem.textContent = whiteTeamName || "Oqlar"
+	if (blackNameElem) blackNameElem.textContent = blackTeamName || "Qoralar"
 
 	const s1 = document.querySelectorAll('.score1')
 	if (s1 && s1.length >= 2) {
@@ -1376,12 +1537,33 @@ function Winning() {
 		s1[1].textContent = blackScore
 	}
 
-	const btnRes = document.querySelector('.btn-res')
+	const penaltyBadge = document.getElementById('game-over-extra-badge')
+	const penaltyScore = document.getElementById('game-over-penalty-score')
+	if (isPenalty && penaltyBadge && penaltyScore) {
+		penaltyBadge.style.display = 'inline-block'
+		penaltyScore.textContent = `${whiteScore} : ${blackScore}`
+	} else if (penaltyBadge) {
+		penaltyBadge.style.display = 'none'
+	}
+
+	const modeText = document.getElementById('game-over-mode-text')
+	const totalGoals = document.getElementById('game-over-total-goals')
+	if (modeText) modeText.textContent = isMultiplayer ? "Online 1v1" : "Lokal 2-o'yinchi"
+	if (totalGoals) totalGoals.textContent = (whiteScore + blackScore).toString()
+
+	const btnRes = document.getElementById('btn-rematch') || document.querySelector('.btn-res')
 	if (btnRes) {
 		btnRes.onclick = () => {
 			if (isMultiplayer) {
 				netEmit('rematch_request', {})
 			}
+			location.reload()
+		}
+	}
+
+	const btnGOLobby = document.getElementById('btn-game-over-lobby')
+	if (btnGOLobby) {
+		btnGOLobby.onclick = () => {
 			location.reload()
 		}
 	}
@@ -1464,13 +1646,14 @@ function handleNetEvent(event, data) {
 			lastOpponentHeartbeat = Date.now()
 			oppTeamName = data.teamName || 'Qoralar'
 			if (lobbyOverlay) lobbyOverlay.style.display = 'none'
-			showToast(`Raqib (${oppTeamName}) qo'shildi! Donalaringizni joylashtiring.`, 'success')
+			showToast(`Raqib (${oppTeamName}) ulandi! O'yin boshlandi. Oqlar birinchi yuradi.`, 'success')
 			updateHud()
 			netEmit('host_welcome', {
 				teamName: myTeamName,
 				time: Time,
 				duration: duration,
 			})
+			triggerStartGame()
 			break
 		}
 		case 'host_welcome': {
@@ -1483,8 +1666,9 @@ function handleNetEvent(event, data) {
 				updateMatchTimerDisplay()
 			}
 			if (lobbyOverlay) lobbyOverlay.style.display = 'none'
-			showToast(`Xonaga ulandingiz! Raqib: ${oppTeamName} (Oqlar)`, 'success')
+			showToast(`Xonaga ulandingiz! Raqib: ${oppTeamName} (Oqlar). O'yin boshlandi!`, 'success')
 			updateHud()
+			triggerStartGame()
 			break
 		}
 		case 'prep_move': {
@@ -1505,7 +1689,7 @@ function handleNetEvent(event, data) {
 		}
 		case 'player_ready': {
 			oppIsReady = true
-			showToast("⚡ Raqib tayyor bo'ldi! Donalaringizni joylashtirib bo'lgach, siz ham Boshlash tugmasini bosing.", 'info')
+			showToast("⚡ Raqib tayyor bo'ldi!", 'info')
 			if (isHost) {
 				hostReadyState.guest = true
 				if (hostReadyState.host && hostReadyState.guest) {
@@ -1529,7 +1713,15 @@ function handleNetEvent(event, data) {
 				matrix[y1][x1].innerHTML = ''
 			}
 			clearAllDots()
-			changeOrder()
+			if (typeof data.nextOrder === 'boolean') {
+				Order = data.nextOrder
+				updateTurnUI()
+				if (yurish && !isPenalty) {
+					resetTurnTimer()
+				}
+			} else {
+				changeOrder()
+			}
 			break
 		}
 		case 'turn_timeout': {
@@ -1696,32 +1888,31 @@ if (btnPlayOffline) {
 	btnPlayOffline.addEventListener('click', () => {
 		isMultiplayer = false
 		if (lobbyOverlay) lobbyOverlay.style.display = 'none'
-		showToast("🎮 Lokal rejim tanlandi. Bitta qurilmada 2 kishi navbatma-navbat o'ynashingiz mumkin!", 'info')
+		showToast("🎮 Lokal rejim tanlandi. 2 kishi navbatma-navbat o'ynashingiz mumkin! Oqlar boshlaydi.", 'info')
 		updateHud()
+		triggerStartGame()
 	})
 }
 
 if (btnOpenRules) {
 	btnOpenRules.addEventListener('click', () => {
-		document.querySelector('.container').style.filter = 'blur(4px)'
-		document.querySelector('.main-container').style.display = 'flex'
-		const yesBtn = document.querySelector('.Yes')
-		const noBtn = document.querySelector('.No')
-		if (yesBtn) {
-			yesBtn.onclick = () => {
-				document.querySelector('.container').style.filter = 'blur(0px)'
-				document.querySelector('.main-container').style.display = 'none'
-			}
-		}
-		if (noBtn) {
-			noBtn.onclick = () => {
-				window.open('https://chessball.my.canva.site/', '_blank')
-				document.querySelector('.container').style.filter = 'blur(0px)'
-				document.querySelector('.main-container').style.display = 'none'
-			}
+		const rulesModal = document.getElementById('rules-modal') || document.querySelector('.main-container')
+		if (rulesModal) {
+			rulesModal.style.display = 'flex'
 		}
 	})
 }
+
+const rulesBtnClose = document.getElementById('rules-btn-close')
+const rulesBtnGotIt = document.getElementById('rules-btn-got-it')
+const closeRulesModal = () => {
+	const rulesModal = document.getElementById('rules-modal') || document.querySelector('.main-container')
+	if (rulesModal) {
+		rulesModal.style.display = 'none'
+	}
+}
+if (rulesBtnClose) rulesBtnClose.addEventListener('click', closeRulesModal)
+if (rulesBtnGotIt) rulesBtnGotIt.addEventListener('click', closeRulesModal)
 
 if (btnReturnLobby) {
 	btnReturnLobby.addEventListener('click', () => {
