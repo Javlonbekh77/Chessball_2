@@ -2,32 +2,20 @@
 // CHESSBALL - ULTIMATE MULTIPLAYER & PENALTY ENGINE
 // ===================================================
 
-import { Peer as BundledPeer } from 'peerjs'
+import Paho from 'paho-mqtt'
 
-function getPeerConstructor() {
-	if (typeof window !== 'undefined' && window.Peer) {
-		return window.Peer
+function getPaho() {
+	if (typeof window !== 'undefined' && window.Paho) {
+		return window.Paho
 	}
-	return BundledPeer
+	return Paho
 }
 
-const PEER_CONFIG = {
-	host: '0.peerjs.com',
-	port: 443,
-	path: '/',
-	secure: true,
-	debug: 1,
-	config: {
-		iceServers: [
-			{ urls: 'stun:stun.l.google.com:19302' },
-			{ urls: 'stun:stun1.l.google.com:19302' },
-			{ urls: 'stun:stun2.l.google.com:19302' },
-			{ urls: 'stun:stun3.l.google.com:19302' },
-			{ urls: 'stun:stun4.l.google.com:19302' },
-			{ urls: 'stun:stun.cloudflare.com:3478' }
-		]
-	}
-}
+// Global robust MQTT brokers with automatic fallback
+const MQTT_BROKERS = [
+	{ host: 'broker.hivemq.com', port: 8884, path: '/mqtt', ssl: true },
+	{ host: 'broker.emqx.io', port: 8084, path: '/mqtt', ssl: true }
+]
 
 const matrixContent = document.querySelector('.main-matrix')
 const squadsBoard = Array.from(matrixContent ? matrixContent.querySelectorAll('.squad') : [])
@@ -67,16 +55,129 @@ let currentRoomCode = null
 let myIsReady = false
 let oppIsReady = false
 
-let peer = null
-let netConn = null
+let mqttClient = null
+let isMqttConnected = false
+let currentBrokerIdx = 0
+let lastOpponentHeartbeat = 0
 let hostReadyState = { host: false, guest: false }
 
-// P2P Net Event Emitter
+// Reliable Real-time Event Emitter (MQTT)
 function netEmit(event, data = {}) {
-	if (netConn && netConn.open) {
-		netConn.send({ event, data })
+	if (!mqttClient || !isMqttConnected || !currentRoomCode) return
+	const PahoModule = getPaho()
+	const targetTopic = `chessball/${currentRoomCode}/${isHost ? 'to_guest' : 'to_host'}`
+	const payload = JSON.stringify({
+		event,
+		data,
+		sender: isHost ? 'host' : 'guest',
+		time: Date.now()
+	})
+	try {
+		const message = new PahoModule.Message(payload)
+		message.destinationName = targetTopic
+		message.qos = 1
+		mqttClient.send(message)
+	} catch (e) {
+		console.error('[NET] Xabar yuborishda xato:', e)
 	}
 }
+
+// Global MQTT Broker Connection Handler
+function connectMqttBroker(onSuccess, onError) {
+	if (mqttClient && isMqttConnected) {
+		onSuccess()
+		return
+	}
+
+	if (mqttClient) {
+		try {
+			mqttClient.disconnect()
+		} catch (e) {}
+		mqttClient = null
+		isMqttConnected = false
+	}
+
+	const PahoModule = getPaho()
+	const broker = MQTT_BROKERS[currentBrokerIdx]
+	const clientId = 'cb_' + (isHost ? 'h_' : 'g_') + Math.random().toString(36).substring(2, 10)
+
+	console.log(`[NET] Serverga ulanmoqda: ${broker.host}:${broker.port}...`)
+	const client = new PahoModule.Client(broker.host, broker.port, broker.path, clientId)
+
+	let hasCalledBack = false
+
+	client.onConnectionLost = responseObject => {
+		isMqttConnected = false
+		console.warn('[NET] Server bilan aloqa uzildi:', responseObject ? responseObject.errorMessage : 'Nomalum')
+		if (isMultiplayer) {
+			showToast("Tarmoq bilan aloqa uzildi, qayta ulanmoqda...", 'warning')
+			setTimeout(() => {
+				connectMqttBroker(() => {
+					if (currentRoomCode) {
+						const myTopic = `chessball/${currentRoomCode}/${isHost ? 'to_host' : 'to_guest'}`
+						client.subscribe(myTopic, { qos: 1 })
+						showToast("Tarmoqqa qayta ulandi!", 'success')
+					}
+				}, () => {})
+			}, 2000)
+		}
+	}
+
+	client.onMessageArrived = message => {
+		try {
+			const payload = JSON.parse(message.payloadString)
+			if (payload && payload.event) {
+				if (payload.event === 'heartbeat') {
+					lastOpponentHeartbeat = Date.now()
+					return
+				}
+				handleNetEvent(payload.event, payload.data)
+			}
+		} catch (e) {
+			console.error('[NET] Xabarni o\'qishda xato:', e)
+		}
+	}
+
+	client.connect({
+		useSSL: broker.ssl,
+		timeout: 6,
+		keepAliveInterval: 30,
+		cleanSession: true,
+		onSuccess: () => {
+			if (hasCalledBack) return
+			hasCalledBack = true
+			mqttClient = client
+			isMqttConnected = true
+			console.log(`[NET] ${broker.host} ga muvaffaqiyatli ulandi!`)
+			onSuccess()
+		},
+		onFailure: err => {
+			if (hasCalledBack) return
+			hasCalledBack = true
+			console.warn(`[NET] ${broker.host} ga ulanish muvaffaqiyatsiz bo'ldi:`, err)
+			if (currentBrokerIdx < MQTT_BROKERS.length - 1) {
+				currentBrokerIdx++
+				console.log(`[NET] Zaxira serverga o'tilmoqda: ${MQTT_BROKERS[currentBrokerIdx].host}...`)
+				connectMqttBroker(onSuccess, onError)
+			} else {
+				currentBrokerIdx = 0
+				onError(err)
+			}
+		}
+	})
+}
+
+// Disconnect monitor
+setInterval(() => {
+	if (isMultiplayer && isMqttConnected) {
+		netEmit('heartbeat', {})
+		if (lastOpponentHeartbeat > 0 && Date.now() - lastOpponentHeartbeat > 20000) {
+			console.warn('[NET] Raqibdan signal yo\'qoldi (20s). Chiqib ketgan deb hisoblanadi.')
+			lastOpponentHeartbeat = 0
+			handleOpponentDisconnect()
+		}
+	}
+}, 3000)
 
 // Donalarning dastlabki ro'yxati
 let Pieces = {
@@ -1371,34 +1472,6 @@ function generateRoomCode() {
 	return Math.floor(100000 + Math.random() * 900000).toString()
 }
 
-// Setup PeerJS connection lifecycle
-function setupConnection(conn) {
-	netConn = conn
-
-	conn.on('open', () => {
-		console.log('[P2P] Aloqa o\'rnatildi!')
-		if (!isHost) {
-			netEmit('guest_join', { teamName: myTeamName })
-		}
-	})
-
-	conn.on('data', packet => {
-		if (packet && packet.event) {
-			handleNetEvent(packet.event, packet.data)
-		}
-	})
-
-	conn.on('close', () => {
-		console.warn('[P2P] Aloqa uzildi')
-		handleOpponentDisconnect()
-	})
-
-	conn.on('error', err => {
-		console.error('[P2P] Ulanish xatosi:', err)
-		showToast('Tarmoq aloqasida xatolik yuz berdi', 'error')
-	})
-}
-
 // Opponent disconnected handler
 function handleOpponentDisconnect() {
 	stopTurnTimer()
@@ -1434,6 +1507,8 @@ function handleOpponentDisconnect() {
 function handleNetEvent(event, data) {
 	switch (event) {
 		case 'guest_join': {
+			isMultiplayer = true
+			lastOpponentHeartbeat = Date.now()
 			oppTeamName = data.teamName || 'Qoralar'
 			if (lobbyOverlay) lobbyOverlay.style.display = 'none'
 			showToast(`Raqib (${oppTeamName}) qo'shildi! Donalaringizni joylashtiring.`, 'success')
@@ -1446,6 +1521,8 @@ function handleNetEvent(event, data) {
 			break
 		}
 		case 'host_welcome': {
+			isMultiplayer = true
+			lastOpponentHeartbeat = Date.now()
 			oppTeamName = data.teamName || 'Oqlar'
 			if (data.time) {
 				Time = data.time
@@ -1527,11 +1604,12 @@ function handleNetEvent(event, data) {
 	}
 }
 
-// Create Room Action (Host - PeerJS)
+// Create Room Action (Host - MQTT)
 function initHostRoom(forcedCode = null) {
 	myTeamName = (teamNameInput ? teamNameInput.value.trim() : '') || 'Barsa'
 	isHost = true
 	myRole = 'white'
+	isMultiplayer = false
 
 	const code = forcedCode || generateRoomCode()
 	currentRoomCode = code
@@ -1542,57 +1620,39 @@ function initHostRoom(forcedCode = null) {
 	const hostStatusMsg = document.getElementById('host-status-msg')
 	const hostSpinner = document.querySelector('#host-status .waiting-spinner')
 	if (hostStatusMsg) {
-		hostStatusMsg.textContent = 'Serverga ulanmoqda va xona tayyorlanmoqda...'
-		hostStatusMsg.style.color = '#475569'
+		hostStatusMsg.textContent = 'Serverga ulanmoqda...'
+		hostStatusMsg.style.color = '#2563eb'
 	}
 	if (hostSpinner) hostSpinner.style.display = 'inline-block'
 
-	if (peer) {
-		try {
-			peer.destroy()
-		} catch (e) {}
-		peer = null
-	}
-
-	const PeerClass = getPeerConstructor()
-	const peerId = 'cb-' + code
-
-	try {
-		peer = new PeerClass(peerId, PEER_CONFIG)
-
-		peer.on('open', id => {
-			console.log('[P2P] Xona ochildi:', id)
-			if (createdRoomCode) createdRoomCode.textContent = currentRoomCode
-			if (hostStatusMsg) {
-				hostStatusMsg.textContent = `🟢 Xona faol (#${currentRoomCode})! Raqib (Qoralar) ulanishi kutilmoqda...`
-				hostStatusMsg.style.color = '#15803d'
-			}
-			showToast(`Xona (#${currentRoomCode}) tayyor! Kodni do'stingizga yuboring.`, 'success')
-		})
-
-		peer.on('connection', c => {
-			setupConnection(c)
-		})
-
-		peer.on('error', err => {
-			console.error('[P2P] Xona xatosi:', err)
-			if (err.type === 'unavailable-id') {
-				// ID allaqachon mavjud bo'lsa yangi kod bilan xona ochamiz
-				initHostRoom()
-			} else {
-				if (hostStatusMsg) {
-					hostStatusMsg.textContent = "Serverga ulanishda xato. 'Yangi kod yaratish' tugmasini bosing."
-					hostStatusMsg.style.color = '#dc2626'
+	connectMqttBroker(
+		() => {
+			const hostTopic = `chessball/${currentRoomCode}/to_host`
+			try {
+				if (mqttClient) {
+					mqttClient.subscribe(hostTopic, { qos: 1 })
+					console.log('[NET] Xona eshituvchisi sozlandi:', hostTopic)
 				}
-				showToast('Ulanish xatosi: ' + (err.message || err.type), 'error')
+				if (hostStatusMsg) {
+					hostStatusMsg.textContent = `🟢 Xona faol (#${currentRoomCode})! Raqib (Qoralar) ulanishi kutilmoqda...`
+					hostStatusMsg.style.color = '#15803d'
+				}
+				if (hostSpinner) hostSpinner.style.display = 'none'
+				showToast(`Xona (#${currentRoomCode}) tayyor! Kodni do'stingizga yuboring.`, 'success')
+			} catch (e) {
+				console.error('[NET] Xona subscribe xatosi:', e)
 			}
-		})
-	} catch (e) {
-		console.error('[P2P] Peer yaratishda istisno:', e)
-		if (hostStatusMsg) {
-			hostStatusMsg.textContent = "Kodni nusxalab do'stingizga yuboring."
+		},
+		err => {
+			console.error('[NET] Xona xatosi:', err)
+			if (hostStatusMsg) {
+				hostStatusMsg.textContent = "Serverga ulanishda xato. 'Yangi kod yaratish' tugmasini bosing."
+				hostStatusMsg.style.color = '#dc2626'
+			}
+			if (hostSpinner) hostSpinner.style.display = 'none'
+			showToast("Serverga ulanib bo'lmadi. Qaytadan urinib ko'ring.", 'error')
 		}
-	}
+	)
 }
 
 if (btnCreateRoom) {
@@ -1601,7 +1661,7 @@ if (btnCreateRoom) {
 	})
 }
 
-// Join Room Action (Guest - PeerJS)
+// Join Room Action (Guest - MQTT)
 if (btnJoinRoom) {
 	btnJoinRoom.addEventListener('click', () => {
 		const rawCode = joinCodeInput ? joinCodeInput.value.trim() : ''
@@ -1618,50 +1678,59 @@ if (btnJoinRoom) {
 		isHost = false
 		myRole = 'black'
 		currentRoomCode = code
+		isMultiplayer = false
 
 		if (joinStatus) {
-			joinStatus.textContent = 'Xonaga ulanmoqda...'
+			joinStatus.textContent = 'Serverga ulanmoqda...'
 			joinStatus.style.display = 'block'
 			joinStatus.style.color = '#2563eb'
 		}
 		btnJoinRoom.disabled = true
 
-		if (peer) {
-			try {
-				peer.destroy()
-			} catch (e) {}
-			peer = null
-		}
+		connectMqttBroker(
+			() => {
+				const guestTopic = `chessball/${currentRoomCode}/to_guest`
+				try {
+					if (mqttClient) {
+						mqttClient.subscribe(guestTopic, { qos: 1 })
+						console.log('[NET] Guest xona eshituvchisi sozlandi:', guestTopic)
+					}
+					if (joinStatus) {
+						joinStatus.textContent = "Xonaga so'rov yuborildi, kutilmoqda..."
+						joinStatus.style.color = '#15803d'
+					}
 
-		const PeerClass = getPeerConstructor()
-		try {
-			peer = new PeerClass(PEER_CONFIG)
-			peer.on('open', () => {
-				const targetPeerId = 'cb-' + code
-				const conn = peer.connect(targetPeerId, { reliable: true })
-				setupConnection(conn)
-			})
-
-			peer.on('error', err => {
-				console.error('[P2P] Ulanish xatosi:', err)
+					let attempts = 0
+					const sendJoinHandshake = () => {
+						if (!isMultiplayer && attempts < 15) {
+							attempts++
+							netEmit('guest_join', { teamName: myTeamName })
+							setTimeout(sendJoinHandshake, 1200)
+						} else if (!isMultiplayer && attempts >= 15) {
+							btnJoinRoom.disabled = false
+							if (joinStatus) {
+								joinStatus.textContent = "Xona egasidan javob kelmadi. Kod to'g'riligini tekshiring."
+								joinStatus.style.color = '#dc2626'
+							}
+						}
+					}
+					sendJoinHandshake()
+				} catch (e) {
+					console.error('[NET] Join subscribe xatosi:', e)
+					btnJoinRoom.disabled = false
+				}
+			},
+			err => {
+				console.error('[NET] Join xatosi:', err)
 				btnJoinRoom.disabled = false
 				if (joinStatus) {
-					joinStatus.textContent = "Xona topilmadi yoki kod noto'g'ri!"
+					joinStatus.textContent = "Serverga ulanishda xato yuz berdi!"
 					joinStatus.style.color = '#dc2626'
 					joinStatus.style.display = 'block'
 				}
-				showToast("Xona topilmadi yoki kod noto'g'ri!", 'error')
-			})
-		} catch (e) {
-			console.error('[P2P] Join xatosi:', e)
-			btnJoinRoom.disabled = false
-			if (joinStatus) {
-				joinStatus.textContent = 'Ulanishda xatolik yuz berdi!'
-				joinStatus.style.color = '#dc2626'
-				joinStatus.style.display = 'block'
+				showToast("Serverga ulanib bo'lmadi", 'error')
 			}
-			showToast("Ulanishda xato yuz berdi", 'error')
-		}
+		)
 	})
 }
 
