@@ -272,11 +272,16 @@ function handleTurnTimeout(fromRemote = false) {
 	showToast(`⏱️ 15s vaqt tugadi! ${timedOutTeam} navbatni boy berdi.`, 'warning')
 
 	const isMyTurn = (myRole === 'white' && isWhiteTurn) || (myRole === 'black' && !isWhiteTurn)
-	if (!fromRemote && isMultiplayer && isMyTurn) {
-		netEmit('turn_timeout', {})
+	if (isMultiplayer) {
+		if (fromRemote) {
+			changeOrder()
+		} else if (isMyTurn) {
+			netEmit('turn_timeout', {})
+			changeOrder()
+		}
+	} else {
+		changeOrder()
 	}
-
-	changeOrder()
 }
 
 function updateTurnUI() {
@@ -832,17 +837,16 @@ function Ball(x, y) {
 			matrix[rDown][x].innerHTML === '' ||
 			(matrix[rDown][x] &&
 				matrix[rDown][x].childNodes[0] &&
+				matrix[rDown][x].childNodes[0].classList &&
 				matrix[rDown][x].childNodes[0].classList.contains(option)))
 	) {
 		if (matrix[rDown][x] && matrix[rDown][x] !== 0 && matrix[rDown][x].innerHTML === '') {
-			if (rDown === 10) {
-				// 10-qator: PASTKI DARVOZA (Oqlarning darvozasi).
-				// Bunga FAQAT QORALAR (Order === true) gol ura oladi!
-				if (Order && x >= 3 && x <= 5) {
-					matrix[rDown][x].innerHTML =
-						"<div style='background-color: white;' class='white-dot dot-action'></div>"
-				}
-			} else {
+			// 10-qator: PASTKI DARVOZA (Oqlarning darvozasi).
+			// Bunga FAQAT QORALAR (Order === true) to'p raqib maydonida bo'lsa (y > 5 va y < 10) gol ura oladi!
+			if (rDown === 10 && y > 5 && y < 10 && Order && x >= 3 && x <= 5) {
+				matrix[rDown][x].innerHTML =
+					"<div style='background-color: white;' class='white-dot dot-action'></div>"
+			} else if (rDown < 10) {
 				matrix[rDown][x].innerHTML = "<div class='dot-action'></div>"
 			}
 		}
@@ -859,108 +863,72 @@ function Ball(x, y) {
 			matrix[rUp][x].innerHTML === '' ||
 			(matrix[rUp][x] &&
 				matrix[rUp][x].childNodes[0] &&
+				matrix[rUp][x].childNodes[0].classList &&
 				matrix[rUp][x].childNodes[0].classList.contains(option)))
 	) {
 		if (matrix[rUp][x] && matrix[rUp][x] !== 0 && matrix[rUp][x].innerHTML === '') {
-			if (rUp === 0) {
-				// 0-qator: YUQORIGI DARVOZA (Qoralarning darvozasi).
-				// Bunga FAQAT OQLAR (!Order) gol ura oladi!
-				if (!Order && x >= 3 && x <= 5) {
-					matrix[rUp][x].innerHTML =
-						"<div style='background-color: white;' class='white-dot dot-action'></div>"
-				}
-			} else {
+			// 0-qator: YUQORIGI DARVOZA (Qoralarning darvozasi).
+			// Bunga FAQAT OQLAR (!Order) to'p raqib maydonida bo'lsa (y > 0 va y < 5) gol ura oladi!
+			if (rUp === 0 && y > 0 && y < 5 && !Order && x >= 3 && x <= 5) {
+				matrix[rUp][x].innerHTML =
+					"<div style='background-color: white;' class='white-dot dot-action'></div>"
+			} else if (rUp > 0) {
 				matrix[rUp][x].innerHTML = "<div class='dot-action'></div>"
 			}
 		}
 		rUp--
 	}
 
-	// Diagonal zarbalar (4 ta yo'nalish)
+	// Diagonal zarbalar (4 ta yo'nalish - original ChessBall qoidalari)
 	const directions = [
 		[-1, -1], // yuqori-chap
-		[1, -1],  // yuqori-o'ng
 		[-1, 1],  // pastki-chap
+		[1, -1],  // yuqori-o'ng
 		[1, 1]    // pastki-o'ng
 	]
 
 	directions.forEach(([dx, dy]) => {
-		// Darvoza ostonasidan to'g'ridan-to'g'ri diagonal zarba
-		const directRow = y + dy
-		const directCol = x + dx
-		if (!Order && directRow === 0 && directCol >= 3 && directCol <= 5) {
-			if (matrix[0] && matrix[0][directCol] && matrix[0][directCol] !== 0 && matrix[0][directCol].innerHTML === '') {
-				matrix[0][directCol].innerHTML =
-					"<div style='background-color: white;' class='white-dot dot-action'></div>"
-			}
-		}
-		if (Order && directRow === 10 && directCol >= 3 && directCol <= 5) {
-			if (matrix[10] && matrix[10][directCol] && matrix[10][directCol] !== 0 && matrix[10][directCol].innerHTML === '') {
-				matrix[10][directCol].innerHTML =
-					"<div style='background-color: white;' class='white-dot dot-action'></div>"
-			}
-		}
-
-		let curCol = x + dx
-		let curRow = y + dy
+		let col = x + dx
+		let row = y + dy
 
 		while (
-			curCol >= 0 &&
-			curCol <= 8 &&
-			curRow >= 1 &&
-			curRow <= 9 &&
-			matrix[curRow] &&
-			matrix[curRow][curCol]
+			col >= 0 &&
+			col <= 8 &&
+			row > 0 &&
+			row < 10 &&
+			matrix[row] &&
+			matrix[row][col] &&
+			(matrix[row][col].innerHTML === '' ||
+				(matrix[row][col].childNodes[0] &&
+					matrix[row][col].childNodes[0].classList &&
+					matrix[row][col].childNodes[0].classList.contains(option)))
 		) {
-			const cell = matrix[curRow][curCol]
-			const hasChild = cell.childNodes && cell.childNodes.length > 0
-
-			// Bo'sh katak
-			if (cell.innerHTML === '') {
-				cell.innerHTML = "<div class='dot-action'></div>"
-
-				// Agar keyingi qadam darvoza ichiga kirsa
-				const nextR = curRow + dy
-				const nextC = curCol + dx
-
-				// Oqlar yuqoridagi Qoralar darvozasiga (0-qator, 3..5 ustunlar)
-				if (!Order && nextR === 0 && nextC >= 3 && nextC <= 5) {
-					if (matrix[0] && matrix[0][nextC] && matrix[0][nextC] !== 0 && matrix[0][nextC].innerHTML === '') {
-						matrix[0][nextC].innerHTML =
+			if (matrix[row][col].innerHTML === '') {
+				// Qoralar pastdagi darvozaga (row 10, ustunlar 3, 4, 5)
+				// To'p faqat raqib maydonida (y > 5 va y < 10) bo'lgandagina gol ura oladi
+				if (row === 9 && y > 5 && y < 10 && Order) {
+					if ((col === 3 || col === 4 || col === 5) &&
+						matrix[10] && matrix[10][col] && matrix[10][col] !== 0) {
+						matrix[10][col].innerHTML =
 							"<div style='background-color: white;' class='white-dot dot-action'></div>"
 					}
 				}
 
-				// Qoralar pastdagi Oqlar darvozasiga (10-qator, 3..5 ustunlar)
-				if (Order && nextR === 10 && nextC >= 3 && nextC <= 5) {
-					if (matrix[10] && matrix[10][nextC] && matrix[10][nextC] !== 0 && matrix[10][nextC].innerHTML === '') {
-						matrix[10][nextC].innerHTML =
+				// Oqlar yuqoridagi darvozaga (row 0, ustunlar 3, 4, 5)
+				// To'p faqat raqib maydonida (y > 0 va y < 5) bo'lgandagina gol ura oladi
+				if (row === 1 && y > 0 && y < 5 && !Order) {
+					if ((col === 3 || col === 4 || col === 5) &&
+						matrix[0] && matrix[0][col] && matrix[0][col] !== 0) {
+						matrix[0][col].innerHTML =
 							"<div style='background-color: white;' class='white-dot dot-action'></div>"
 					}
 				}
-			} else if (hasChild && cell.childNodes[0].classList && cell.childNodes[0].classList.contains(option)) {
-				// Jamoadosh dona orqali to'p o'tadi
-				const nextR = curRow + dy
-				const nextC = curCol + dx
-				if (!Order && nextR === 0 && nextC >= 3 && nextC <= 5) {
-					if (matrix[0] && matrix[0][nextC] && matrix[0][nextC] !== 0 && matrix[0][nextC].innerHTML === '') {
-						matrix[0][nextC].innerHTML =
-							"<div style='background-color: white;' class='white-dot dot-action'></div>"
-					}
-				}
-				if (Order && nextR === 10 && nextC >= 3 && nextC <= 5) {
-					if (matrix[10] && matrix[10][nextC] && matrix[10][nextC] !== 0 && matrix[10][nextC].innerHTML === '') {
-						matrix[10][nextC].innerHTML =
-							"<div style='background-color: white;' class='white-dot dot-action'></div>"
-					}
-				}
-			} else {
-				// Raqib donasi yoki boshqa to'siq to'pni to'sadi
-				break
+
+				matrix[row][col].innerHTML = "<div class='dot-action'></div>"
 			}
 
-			curCol += dx
-			curRow += dy
+			col += dx
+			row += dy
 		}
 	})
 }
